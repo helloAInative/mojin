@@ -1,12 +1,12 @@
 [package]
 name = "mojin-desktop"
-version = "0.1.0"
+version = "0.2.0"
 description = "摸金小王子桌面客户端"
 authors = ["helloAInative"]
 license = "MIT"
 repository = "https://github.com/helloAInative/mojin"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.88"
 
 [lib]
 name = "mojin_desktop_lib"

@@ -67,9 +67,23 @@
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | POST | `/api/v1/ai/analyze/{code}` | 五角色分析和仲裁 |
+| GET | `/api/v1/ai/config` | 查看真实模型启用状态，不返回 Token |
 | GET | `/api/v1/ai/usage?limit=20` | 分析调用记录 |
+| GET | `/api/v1/research/context` | 新闻、昨日美股和行业板块上下文 |
+| POST | `/api/v1/research/select` | 对自选池或指定代码运行五路候选排序 |
 
 请求体可以为空，也可以传 `{"signal_id":"..."}`。绑定历史信号时，路径中的代码必须与信号代码一致。
+
+智能候选示例：
+
+```json
+{
+  "codes": ["sz300623", "sh600519", "sz000001"],
+  "max_candidates": 3
+}
+```
+
+`codes` 留空时读取自选池。单次最多分析 12 只并返回前 10 只。排序依据为技术信号、历史后验、新闻、美股和行业上下文的五角色仲裁结果，不是个性化买卖指令。
 
 ## WebSocket
 

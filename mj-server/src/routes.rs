@@ -13,6 +13,7 @@ use crate::export;
 use crate::market::{self, Quote};
 use crate::paper;
 use crate::perf;
+use crate::research;
 use crate::signals::{self, Signal};
 use crate::universe;
 use rusqlite::{params, OptionalExtension};
@@ -58,14 +59,20 @@ pub fn router() -> Router<Arc<AppState>> {
         )
         // AI 五模型并行
         .route("/api/v1/ai/analyze/{code}", post(ai_analyze))
+        .route("/api/v1/ai/config", get(ai_config))
         .route("/api/v1/ai/usage", get(ai_usage))
+        .route("/api/v1/research/context", get(research_context))
+        .route("/api/v1/research/select", post(research_select))
         // WS 状态
         .route("/api/v1/ws/stats", get(ws_stats))
         // 报表导出（CSV / UTF-8 BOM，Excel/Numbers 直接打开）
         .route("/api/v1/export/signals.csv", get(export::export_signals))
         .route("/api/v1/export/fills.csv", get(export::export_fills))
         .route("/api/v1/export/pnl.csv", get(export::export_pnl))
-        .route("/api/v1/export/positions.csv", get(export::export_positions))
+        .route(
+            "/api/v1/export/positions.csv",
+            get(export::export_positions),
+        )
 }
 
 #[derive(Serialize)]
@@ -151,7 +158,7 @@ async fn healthz(State(state): State<Arc<AppState>>) -> Result<Json<Healthz>, Ap
 struct Meta {
     ok: bool,
     api: &'static str,
-    endpoints: [&'static str; 27],
+    endpoints: [&'static str; 30],
 }
 
 async fn meta() -> Json<Meta> {
@@ -183,7 +190,10 @@ async fn meta() -> Json<Meta> {
             "/api/v1/index-universe",
             "/api/v1/index-universe/{code}",
             "/api/v1/ai/analyze/{code}",
+            "/api/v1/ai/config",
             "/api/v1/ai/usage",
+            "/api/v1/research/context",
+            "/api/v1/research/select",
             "/api/v1/ws/stats",
             "/ws",
         ],
@@ -984,6 +994,8 @@ async fn index_del(
 struct AnalyzeBody {
     #[serde(default)]
     signal_id: Option<String>,
+    #[serde(default)]
+    include_research: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -998,63 +1010,20 @@ async fn ai_analyze(
     Path(code): Path<String>,
     body: Option<Json<AnalyzeBody>>,
 ) -> Result<Json<AnalyzeWrap>, AppError> {
-    let signal_id = body.and_then(|Json(body)| body.signal_id);
-    let ctx = if let Some(signal_id) = signal_id.as_deref() {
+    let body = body.map(|Json(body)| body).unwrap_or_default();
+    let signal_id = body.signal_id;
+    let research = if body.include_research.unwrap_or(true) {
+        research::collect().await
+    } else {
+        research::ResearchContext::default()
+    };
+    let mut ctx = if let Some(signal_id) = signal_id.as_deref() {
         ai::context_for_signal(&state, signal_id, &code)?
     } else {
-        // 无 signal_id 时使用当前行情与即时信号。
-        let bars = market::fetch_daily_voted(&code, 120).await;
-        let primary_quote = market::fetch_quote_ranked(&code).await.into_iter().next();
-        let name = primary_quote
-            .as_ref()
-            .map(|q| q.name.clone())
-            .unwrap_or_else(|| code.clone());
-        let price = primary_quote
-            .as_ref()
-            .map(|q| q.price)
-            .unwrap_or_else(|| bars.last().map(|b| b.close).unwrap_or(0.0));
-        let signal = signals::evaluate(&code, &name, &bars);
-        let level = signal
-            .as_ref()
-            .map(|s| format!("{:?}", s.level).to_lowercase())
-            .unwrap_or_else(|| "tip".into());
-        let confidence = signal.as_ref().map(|s| s.confidence).unwrap_or(0.0);
-        let factors = signal
-            .as_ref()
-            .map(|s| {
-                s.factors
-                    .iter()
-                    .map(|f| (f.key.clone(), f.value, f.detail.clone()))
-                    .collect()
-            })
-            .unwrap_or_default();
-        let (ret_5d, ret_20d) =
-            state.with_conn(|c| -> Result<(Option<f64>, Option<f64>), AppError> {
-                let row = c
-                    .query_row(
-                        "SELECT ret_5d, ret_20d FROM signal_performance p
-                 JOIN signal s ON s.id = p.signal_id
-                 WHERE s.code = ?
-                 ORDER BY p.labeled_at DESC NULLS LAST, s.fired_at DESC LIMIT 1",
-                        params![code],
-                        |r| Ok((r.get::<_, Option<f64>>(0)?, r.get::<_, Option<f64>>(1)?)),
-                    )
-                    .optional()?;
-                Ok((row.and_then(|x| x.0), row.and_then(|x| x.1)))
-            })?;
-        ai::AiContext {
-            signal_id: None,
-            code: code.clone(),
-            name,
-            price,
-            signal_level: level,
-            signal_confidence: confidence,
-            factors,
-            ret_5d,
-            ret_20d,
-        }
+        current_ai_context(&state, &code).await?
     };
-    let providers = ai::default_providers();
+    ctx.research = research;
+    let providers = ai::configured_providers();
     let resp = ai::analyze(&state, ctx, providers).await?;
     let payload = serde_json::to_value(&resp)
         .unwrap_or_else(|_| serde_json::json!({ "code": code, "signal_id": signal_id }));
@@ -1068,6 +1037,187 @@ async fn ai_analyze(
     Ok(Json(AnalyzeWrap {
         ok: true,
         inner: resp,
+    }))
+}
+
+async fn current_ai_context(state: &AppState, code: &str) -> Result<ai::AiContext, AppError> {
+    let bars = market::fetch_daily_voted(code, 120).await;
+    if bars.is_empty() {
+        return Err(AppError::Unavailable(format!(
+            "no daily bars available for {code}"
+        )));
+    }
+    let primary_quote = market::fetch_quote_ranked(code).await.into_iter().next();
+    let name = primary_quote
+        .as_ref()
+        .map(|quote| quote.name.clone())
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| code.to_string());
+    let price = primary_quote
+        .as_ref()
+        .map(|quote| quote.price)
+        .unwrap_or_else(|| bars.last().map(|bar| bar.close).unwrap_or(0.0));
+    let signal = signals::evaluate(code, &name, &bars);
+    let signal_level = signal
+        .as_ref()
+        .map(|signal| format!("{:?}", signal.level).to_lowercase())
+        .unwrap_or_else(|| "tip".into());
+    let signal_confidence = signal
+        .as_ref()
+        .map(|signal| signal.confidence)
+        .unwrap_or(0.0);
+    let factors = signal
+        .as_ref()
+        .map(|signal| {
+            signal
+                .factors
+                .iter()
+                .map(|factor| (factor.key.clone(), factor.value, factor.detail.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let (ret_5d, ret_20d) =
+        state.with_conn(|conn| -> Result<(Option<f64>, Option<f64>), AppError> {
+            let row = conn
+                .query_row(
+                    "SELECT ret_5d, ret_20d FROM signal_performance p
+                     JOIN signal s ON s.id = p.signal_id
+                     WHERE s.code = ?
+                     ORDER BY p.labeled_at DESC NULLS LAST, s.fired_at DESC LIMIT 1",
+                    params![code],
+                    |row| Ok((row.get::<_, Option<f64>>(0)?, row.get::<_, Option<f64>>(1)?)),
+                )
+                .optional()?;
+            Ok((row.and_then(|item| item.0), row.and_then(|item| item.1)))
+        })?;
+    Ok(ai::AiContext {
+        signal_id: None,
+        code: code.to_string(),
+        name,
+        price,
+        signal_level,
+        signal_confidence,
+        factors,
+        ret_5d,
+        ret_20d,
+        historical_evidence: ai::historical_evidence(state, code)?,
+        research: research::ResearchContext::default(),
+    })
+}
+
+#[derive(Serialize)]
+struct AiConfigResp {
+    ok: bool,
+    #[serde(flatten)]
+    config: ai::AiConfigView,
+    disclaimer: &'static str,
+}
+
+async fn ai_config() -> Json<AiConfigResp> {
+    Json(AiConfigResp {
+        ok: true,
+        config: ai::config_view(),
+        disclaimer: "Token 只从服务端环境变量读取，接口不会返回密钥",
+    })
+}
+
+#[derive(Serialize)]
+struct ResearchContextResp {
+    ok: bool,
+    context: research::ResearchContext,
+    disclaimer: &'static str,
+}
+
+async fn research_context() -> Json<ResearchContextResp> {
+    Json(ResearchContextResp {
+        ok: true,
+        context: research::collect().await,
+        disclaimer: "新闻、海外行情和板块数据可能延迟或缺失；不构成投资建议",
+    })
+}
+
+#[derive(Deserialize, Default)]
+struct ResearchSelectBody {
+    #[serde(default)]
+    codes: Vec<String>,
+    #[serde(default)]
+    max_candidates: Option<usize>,
+}
+
+#[derive(Serialize)]
+struct ResearchFailure {
+    code: String,
+    error: String,
+}
+
+#[derive(Serialize)]
+struct ResearchSelectResp {
+    ok: bool,
+    as_of: String,
+    ai: ai::AiConfigView,
+    context: research::ResearchContext,
+    candidates: Vec<ai::ArbitrateResp>,
+    failures: Vec<ResearchFailure>,
+    methodology: &'static str,
+    disclaimer: &'static str,
+}
+
+async fn research_select(
+    State(state): State<Arc<AppState>>,
+    body: Option<Json<ResearchSelectBody>>,
+) -> Result<Json<ResearchSelectResp>, AppError> {
+    let body = body.map(|Json(body)| body).unwrap_or_default();
+    let mut codes = body.codes;
+    if codes.is_empty() {
+        codes = universe::list_watch(&state, None)?
+            .into_iter()
+            .map(|item| item.code)
+            .collect();
+    }
+    if codes.is_empty() {
+        codes = vec!["sz300623".into(), "sh600519".into(), "sz000001".into()];
+    }
+    codes.sort();
+    codes.dedup();
+    codes.truncate(12);
+    let max_candidates = body.max_candidates.unwrap_or(5).clamp(1, 10);
+    let context = research::collect().await;
+    let ai_config = ai::config_view();
+    let mut candidates = Vec::new();
+    let mut failures = Vec::new();
+    for code in codes {
+        match current_ai_context(&state, &code).await {
+            Ok(mut ai_context) => {
+                ai_context.research = context.clone();
+                match ai::analyze(&state, ai_context, ai::configured_providers()).await {
+                    Ok(candidate) => candidates.push(candidate),
+                    Err(error) => failures.push(ResearchFailure {
+                        code,
+                        error: error.to_string(),
+                    }),
+                }
+            }
+            Err(error) => failures.push(ResearchFailure {
+                code,
+                error: error.to_string(),
+            }),
+        }
+    }
+    candidates.sort_by(|left, right| {
+        let left_rank = left.final_score * left.final_confidence;
+        let right_rank = right.final_score * right.final_confidence;
+        right_rank.total_cmp(&left_rank)
+    });
+    candidates.truncate(max_candidates);
+    Ok(Json(ResearchSelectResp {
+        ok: true,
+        as_of: chrono::Utc::now().to_rfc3339(),
+        ai: ai_config,
+        context,
+        candidates,
+        failures,
+        methodology: "自选池逐股计算技术信号与历史后验，叠加新闻、昨日美股和行业板块上下文，再由五角色独立分析并按历史权重仲裁。",
+        disclaimer: "候选排序是研究线索，不是个性化买卖指令；数据可能延迟、缺失或错误。",
     }))
 }
 

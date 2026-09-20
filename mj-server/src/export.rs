@@ -77,10 +77,7 @@ fn csv_response(filename: &str, body: String) -> Response {
         // percent-encode for filename*
         percent_encode(filename),
     );
-    h.insert(
-        header::CONTENT_DISPOSITION,
-        disposition.parse().unwrap(),
-    );
+    h.insert(header::CONTENT_DISPOSITION, disposition.parse().unwrap());
     resp
 }
 
@@ -252,9 +249,7 @@ pub async fn export_pnl(
 
 // ──────────────── positions.csv ────────────────
 
-pub async fn export_positions(
-    State(state): State<Arc<AppState>>,
-) -> Result<Response, AppError> {
+pub async fn export_positions(State(state): State<Arc<AppState>>) -> Result<Response, AppError> {
     let account = crate::paper::load_account(&state, "default")?;
     let mut body = String::new();
     body.push_str(&join_row(&[

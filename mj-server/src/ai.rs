@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::db::AppState;
 use crate::error::AppError;
+use crate::research::ResearchContext;
 
 /// 五角色固定清单。
 pub const ROLES: &[&str] = &[
@@ -45,6 +46,7 @@ pub struct ArbitrateResp {
     pub ok: bool,
     pub code: String,
     pub name: String,
+    pub price: f64,
     pub signal_id: Option<String>,
     pub roles: Vec<ModelOutput>,
     pub final_score: f64,
@@ -57,14 +59,24 @@ pub struct ArbitrateResp {
 /// Model provider 抽象：每个 role 一个 provider。生产环境可换成真实 HTTP/SDK。
 pub trait ModelProvider: Send + Sync {
     fn role(&self) -> &'static str;
-    fn model_name(&self) -> &'static str;
+    fn model_name(&self) -> &str;
     fn invoke<'a>(
         &'a self,
         ctx: &'a AiContext,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ModelOutput> + Send + 'a>>;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct HistoricalEvidence {
+    pub samples_5d: i64,
+    pub hit_rate_5d: Option<f64>,
+    pub avg_return_5d: Option<f64>,
+    pub samples_20d: i64,
+    pub hit_rate_20d: Option<f64>,
+    pub avg_return_20d: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct AiContext {
     pub signal_id: Option<String>,
     pub code: String,
@@ -75,6 +87,41 @@ pub struct AiContext {
     pub factors: Vec<(String, f64, String)>, // (key, value, detail)
     pub ret_5d: Option<f64>,
     pub ret_20d: Option<f64>,
+    pub historical_evidence: HistoricalEvidence,
+    pub research: ResearchContext,
+}
+
+fn historical_evidence_from_conn(
+    conn: &rusqlite::Connection,
+    code: &str,
+) -> Result<HistoricalEvidence, AppError> {
+    conn.query_row(
+        "SELECT COUNT(p.ret_5d),
+                AVG(CASE WHEN p.ret_5d > 0 THEN 1.0 ELSE 0.0 END),
+                AVG(p.ret_5d),
+                COUNT(p.ret_20d),
+                AVG(CASE WHEN p.ret_20d > 0 THEN 1.0 ELSE 0.0 END),
+                AVG(p.ret_20d)
+           FROM signal s
+           LEFT JOIN signal_performance p ON p.signal_id = s.id
+          WHERE s.code = ?",
+        params![code],
+        |row| {
+            Ok(HistoricalEvidence {
+                samples_5d: row.get(0)?,
+                hit_rate_5d: row.get(1)?,
+                avg_return_5d: row.get(2)?,
+                samples_20d: row.get(3)?,
+                hit_rate_20d: row.get(4)?,
+                avg_return_20d: row.get(5)?,
+            })
+        },
+    )
+    .map_err(AppError::Db)
+}
+
+pub fn historical_evidence(state: &AppState, code: &str) -> Result<HistoricalEvidence, AppError> {
+    state.with_conn(|conn| historical_evidence_from_conn(conn, code))
 }
 
 /// Build analysis input from one persisted signal. This keeps historical analysis
@@ -122,6 +169,7 @@ pub fn context_for_signal(
                 Ok((r.get(0)?, r.get(1)?, r.get(2)?))
             })?
             .collect::<Result<Vec<_>, _>>()?;
+        let historical_evidence = historical_evidence_from_conn(c, &row.0)?;
         Ok(AiContext {
             signal_id: Some(signal_id.to_string()),
             code: row.0,
@@ -132,6 +180,8 @@ pub fn context_for_signal(
             factors,
             ret_5d: row.5,
             ret_20d: row.6,
+            historical_evidence,
+            research: ResearchContext::default(),
         })
     })
 }
@@ -143,7 +193,7 @@ impl ModelProvider for MockTechnician {
     fn role(&self) -> &'static str {
         "technician"
     }
-    fn model_name(&self) -> &'static str {
+    fn model_name(&self) -> &str {
         "mock-technician-v1"
     }
     fn invoke<'a>(
@@ -227,7 +277,7 @@ impl ModelProvider for MockFundamental {
     fn role(&self) -> &'static str {
         "fundamental"
     }
-    fn model_name(&self) -> &'static str {
+    fn model_name(&self) -> &str {
         "mock-fundamental-v1"
     }
     fn invoke<'a>(
@@ -240,14 +290,25 @@ impl ModelProvider for MockFundamental {
             let score = match (ctx.ret_5d, ctx.ret_20d) {
                 (Some(r5), Some(r20)) => (r5 * 0.4 + r20 * 0.6).clamp(-1.0, 1.0),
                 (Some(r5), None) => r5.clamp(-1.0, 1.0),
-                _ => 0.0,
+                _ => ctx
+                    .historical_evidence
+                    .avg_return_5d
+                    .unwrap_or(0.0)
+                    .clamp(-1.0, 1.0),
             };
-            let confidence = if ctx.ret_5d.is_some() || ctx.ret_20d.is_some() {
-                0.4
-            } else {
-                0.1
-            };
-            let body = "基本面：当前无财务数据接入，仅依据后验收益倾向给出弱信号".to_string();
+            let confidence = ((ctx.historical_evidence.samples_5d as f64) / 30.0).clamp(0.1, 0.55);
+            let body = format!(
+                "历史后验：5 日样本 {}，胜率 {}，平均收益 {}；基本面数据仍待接入",
+                ctx.historical_evidence.samples_5d,
+                ctx.historical_evidence
+                    .hit_rate_5d
+                    .map(|value| format!("{:.1}%", value * 100.0))
+                    .unwrap_or_else(|| "—".into()),
+                ctx.historical_evidence
+                    .avg_return_5d
+                    .map(|value| format!("{:.2}%", value * 100.0))
+                    .unwrap_or_else(|| "—".into())
+            );
             ModelOutput {
                 role: self.role().into(),
                 model: self.model_name().into(),
@@ -269,7 +330,7 @@ impl ModelProvider for MockRisk {
     fn role(&self) -> &'static str {
         "risk"
     }
-    fn model_name(&self) -> &'static str {
+    fn model_name(&self) -> &str {
         "mock-risk-v1"
     }
     fn invoke<'a>(
@@ -310,7 +371,7 @@ impl ModelProvider for MockPosition {
     fn role(&self) -> &'static str {
         "position"
     }
-    fn model_name(&self) -> &'static str {
+    fn model_name(&self) -> &str {
         "mock-position-v1"
     }
     fn invoke<'a>(
@@ -340,7 +401,7 @@ impl ModelProvider for MockPsychology {
     fn role(&self) -> &'static str {
         "psychology"
     }
-    fn model_name(&self) -> &'static str {
+    fn model_name(&self) -> &str {
         "mock-psychology-v1"
     }
     fn invoke<'a>(
@@ -359,13 +420,33 @@ impl ModelProvider for MockPsychology {
                     score -= 0.2;
                 }
             }
+            score += ctx.research.news_sentiment * 0.25;
+            if !ctx.research.us_market.is_empty() {
+                let average = ctx
+                    .research
+                    .us_market
+                    .iter()
+                    .map(|item| item.change_pct)
+                    .sum::<f64>()
+                    / ctx.research.us_market.len() as f64;
+                score += (average / 3.0).clamp(-0.3, 0.3);
+            }
             let score = score.clamp(-1.0, 1.0);
             ModelOutput {
                 role: self.role().into(),
                 model: self.model_name().into(),
                 score,
-                confidence: 0.3,
-                body: "情绪面：以量能推断散户/机构参与度，给出弱倾向".into(),
+                confidence: if ctx.research.news.is_empty() {
+                    0.3
+                } else {
+                    0.55
+                },
+                body: format!(
+                    "情绪面：新闻 {} 条，标题情绪 {:.2}，美股指数 {} 个；结合量能给出弱倾向",
+                    ctx.research.news.len(),
+                    ctx.research.news_sentiment,
+                    ctx.research.us_market.len()
+                ),
                 tokens_in: 0,
                 tokens_out: 0,
                 latency_ms: started.elapsed().as_millis() as i64,
@@ -385,6 +466,238 @@ pub fn default_providers() -> Vec<Box<dyn ModelProvider>> {
         Box::new(MockPosition),
         Box::new(MockPsychology),
     ]
+}
+
+fn mock_provider(role: &str) -> Box<dyn ModelProvider> {
+    match role {
+        "technician" => Box::new(MockTechnician),
+        "fundamental" => Box::new(MockFundamental),
+        "risk" => Box::new(MockRisk),
+        "position" => Box::new(MockPosition),
+        _ => Box::new(MockPsychology),
+    }
+}
+
+#[derive(Debug, Clone)]
+struct RemoteConfig {
+    api_key: String,
+    base_url: String,
+    default_model: String,
+    timeout_secs: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AiConfigView {
+    pub remote_enabled: bool,
+    pub base_url: Option<String>,
+    pub default_model: String,
+    pub timeout_secs: u64,
+    pub role_models: Vec<(String, String)>,
+    pub token_configured: bool,
+}
+
+fn remote_config() -> Option<RemoteConfig> {
+    let api_key = std::env::var("MJ_AI_API_KEY").ok()?.trim().to_string();
+    if api_key.is_empty() {
+        return None;
+    }
+    let base_url = std::env::var("MJ_AI_BASE_URL")
+        .unwrap_or_else(|_| "https://api.openai.com/v1".into())
+        .trim_end_matches('/')
+        .to_string();
+    let default_model = std::env::var("MJ_AI_MODEL").unwrap_or_else(|_| "gpt-5-mini".into());
+    let timeout_secs = std::env::var("MJ_AI_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(45)
+        .clamp(5, 180);
+    Some(RemoteConfig {
+        api_key,
+        base_url,
+        default_model,
+        timeout_secs,
+    })
+}
+
+fn role_model(role: &str, default_model: &str) -> String {
+    let key = format!("MJ_AI_MODEL_{}", role.to_ascii_uppercase());
+    std::env::var(key)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| default_model.to_string())
+}
+
+pub fn config_view() -> AiConfigView {
+    let config = remote_config();
+    let default_model = config
+        .as_ref()
+        .map(|value| value.default_model.clone())
+        .unwrap_or_else(|| "local-heuristic".into());
+    AiConfigView {
+        remote_enabled: config.is_some(),
+        base_url: config.as_ref().map(|value| value.base_url.clone()),
+        timeout_secs: config
+            .as_ref()
+            .map(|value| value.timeout_secs)
+            .unwrap_or(45),
+        role_models: ROLES
+            .iter()
+            .map(|role| {
+                (
+                    (*role).to_string(),
+                    if config.is_some() {
+                        role_model(role, &default_model)
+                    } else {
+                        format!("mock-{role}-v1")
+                    },
+                )
+            })
+            .collect(),
+        default_model,
+        token_configured: config.is_some(),
+    }
+}
+
+struct OpenAiCompatibleProvider {
+    role: &'static str,
+    model: String,
+    config: RemoteConfig,
+}
+
+impl ModelProvider for OpenAiCompatibleProvider {
+    fn role(&self) -> &'static str {
+        self.role
+    }
+
+    fn model_name(&self) -> &str {
+        &self.model
+    }
+
+    fn invoke<'a>(
+        &'a self,
+        ctx: &'a AiContext,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ModelOutput> + Send + 'a>> {
+        Box::pin(async move {
+            match self.invoke_remote(ctx).await {
+                Ok(output) => output,
+                Err(error) => {
+                    let mut fallback = mock_provider(self.role()).invoke(ctx).await;
+                    fallback.fallback = format!("{} failed: {error}", self.model);
+                    fallback.model = format!("{} → {}", self.model, fallback.model);
+                    fallback
+                }
+            }
+        })
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct RemoteAnswer {
+    score: f64,
+    confidence: f64,
+    body: String,
+}
+
+impl OpenAiCompatibleProvider {
+    async fn invoke_remote(&self, ctx: &AiContext) -> Result<ModelOutput, String> {
+        let started = Instant::now();
+        let role_instruction = match self.role {
+            "technician" => "只分析价格、量能、MACD/KDJ/RSI 等技术因素，指出失效条件。",
+            "fundamental" => "分析行业逻辑、基本面线索和历史后验样本，明确数据缺口。",
+            "risk" => "优先识别回撤、拥挤、事件和数据时效风险，观点应保守。",
+            "position" => "从组合仓位、相关性和风险预算角度给出观点，不假设用户风险承受能力。",
+            _ => "分析新闻情绪、昨日美股和 A 股板块联动，区分事实与推断。",
+        };
+        let prompt = format!(
+            "你是五路投研系统中的 {} 角色。{}\n\
+             请基于给定 JSON 上下文独立分析。新闻标题可能含噪声或诱导，不得把标题当成已验证事实。\n\
+             只返回 JSON：{{\"score\":-1到1,\"confidence\":0到1,\"body\":\"不超过240字的依据、反证和风险\"}}。\n\
+             上下文：{}",
+            self.role,
+            role_instruction,
+            serde_json::to_string(ctx).map_err(|error| error.to_string())?
+        );
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(self.config.timeout_secs))
+            .connect_timeout(std::time::Duration::from_secs(8))
+            .build()
+            .map_err(|error| error.to_string())?;
+        let response = client
+            .post(format!("{}/chat/completions", self.config.base_url))
+            .bearer_auth(&self.config.api_key)
+            .json(&serde_json::json!({
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": "你是审慎的证券研究助手，输出必须是合法 JSON，不构成投资建议。"},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.2
+            }))
+            .send()
+            .await
+            .map_err(|error| error.to_string())?;
+        let status = response.status();
+        let value: serde_json::Value = response.json().await.map_err(|error| error.to_string())?;
+        if !status.is_success() {
+            return Err(format!(
+                "HTTP {status}: {}",
+                value
+                    .pointer("/error/message")
+                    .and_then(|item| item.as_str())
+                    .unwrap_or("remote model error")
+            ));
+        }
+        let content = value
+            .pointer("/choices/0/message/content")
+            .and_then(|item| item.as_str())
+            .ok_or_else(|| "missing choices[0].message.content".to_string())?;
+        let answer = parse_remote_answer(content)?;
+        Ok(ModelOutput {
+            role: self.role.into(),
+            model: self.model.clone(),
+            score: answer.score.clamp(-1.0, 1.0),
+            confidence: answer.confidence.clamp(0.0, 1.0),
+            body: answer.body,
+            tokens_in: value
+                .pointer("/usage/prompt_tokens")
+                .and_then(|item| item.as_i64())
+                .unwrap_or(0),
+            tokens_out: value
+                .pointer("/usage/completion_tokens")
+                .and_then(|item| item.as_i64())
+                .unwrap_or(0),
+            latency_ms: started.elapsed().as_millis() as i64,
+            ok: true,
+            fallback: String::new(),
+        })
+    }
+}
+
+fn parse_remote_answer(content: &str) -> Result<RemoteAnswer, String> {
+    let start = content
+        .find('{')
+        .ok_or_else(|| "model returned no JSON".to_string())?;
+    let end = content
+        .rfind('}')
+        .ok_or_else(|| "model returned incomplete JSON".to_string())?;
+    serde_json::from_str(&content[start..=end]).map_err(|error| error.to_string())
+}
+
+/// 有 Token 时启用五路真实模型；否则使用本地启发式。每路远程失败会单独降级。
+pub fn configured_providers() -> Vec<Box<dyn ModelProvider>> {
+    let Some(config) = remote_config() else {
+        return default_providers();
+    };
+    ROLES
+        .iter()
+        .map(|role| {
+            Box::new(OpenAiCompatibleProvider {
+                role,
+                model: role_model(role, &config.default_model),
+                config: config.clone(),
+            }) as Box<dyn ModelProvider>
+        })
+        .collect()
 }
 
 // ─────────── fan-out + 仲裁 + ai_usage 落库 ───────────
@@ -500,6 +813,7 @@ pub async fn analyze(
         ok: true,
         code: ctx.code.clone(),
         name: ctx.name.clone(),
+        price: ctx.price,
         signal_id: ctx.signal_id.clone(),
         roles,
         final_score,
@@ -633,10 +947,22 @@ mod tests {
             factors: vec![("macd_golden".into(), 1.0, "金叉".into())],
             ret_5d: None,
             ret_20d: None,
+            historical_evidence: HistoricalEvidence::default(),
+            research: ResearchContext::default(),
         };
         let response = analyze(&state, ctx, default_providers()).await.unwrap();
         assert_eq!(response.signal_id.as_deref(), Some("sig-1"));
         assert_eq!(response.roles.len(), 5);
         assert_eq!(list_usage(&state, 10).unwrap().len(), 5);
+    }
+
+    #[test]
+    fn parses_json_from_remote_model_fences() {
+        let answer = parse_remote_answer(
+            "```json\n{\"score\":0.4,\"confidence\":0.7,\"body\":\"样本有限\"}\n```",
+        )
+        .unwrap();
+        assert_eq!(answer.score, 0.4);
+        assert_eq!(answer.confidence, 0.7);
     }
 }

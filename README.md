@@ -16,13 +16,14 @@
 - 模拟撮合：整手买入、T+1 可卖、涨跌停、佣金、印花税和过户费
 - 持仓行情标记、每日权益快照及相邻快照收益
 - 自选组和指数池维护
-- 五角色本地启发式分析、加权仲裁、调用统计与 WebSocket 推送
+- 新闻、昨日美股、行业板块、技术指标与历史后验驱动的研究候选池
+- 五角色 OpenAI 兼容模型并行分析、加权仲裁、用量记录与逐路本地降级
 - WebSocket 主题订阅：`signal`、`fill`、`equity`、`healthz`、`ai`
 - macOS 与 Windows 桌面客户端，支持服务地址记忆和断线重连
 
 ## 项目状态
 
-项目处于早期开发阶段，适合本地研究和二次开发。当前 AI 提供者是确定性的本地启发式实现；`.env.example` 中的远程模型配置为后续接入预留，当前版本不会向模型服务发送请求。
+项目处于早期开发阶段，适合本地研究和二次开发。配置服务端 Token 后会调用 OpenAI 兼容接口；没有 Token 或单路调用失败时使用确定性的本地启发式。历史信号后验作为研究证据参与分析，不会自动训练或微调外部模型。
 
 已知限制：
 
@@ -33,7 +34,7 @@
 
 ## 快速开始
 
-需要 Rust 1.85 或更高版本。
+需要 Rust 1.88 或更高版本。
 
 ```bash
 git clone git@github.com:helloAInative/mojin.git
@@ -92,10 +93,27 @@ curl http://127.0.0.1:8787/healthz
 | `MJ_PORT` | `8787` | HTTP 与 WebSocket 端口 |
 | `MJ_DB_PATH` | `data/mojin.db` | SQLite 路径 |
 | `RUST_LOG` | `mj_server=info,tower_http=info` | Rust 日志过滤器 |
-| `MJ_AI_API_KEY` | 空 | 预留，当前版本不读取 |
-| `MJ_AI_BASE_URL` | 空 | 预留，当前版本不读取 |
+| `MJ_AI_API_KEY` | 空 | OpenAI 兼容接口 Token；只在服务端读取 |
+| `MJ_AI_BASE_URL` | OpenAI | 兼容接口基址，例如阿里百炼 `/compatible-mode/v1` |
+| `MJ_AI_MODEL` | `gpt-5-mini` | 五角色默认模型 |
+| `MJ_AI_MODEL_{ROLE}` | 空 | 按角色覆盖模型，角色见 `.env.example` |
+| `MJ_AI_TIMEOUT_SECS` | `45` | 单路模型超时，范围 5–180 秒 |
+| `MJ_NEWS_FEEDS` | 空 | 自定义 RSS，格式为 `来源|URL;来源|URL` |
 
 真实密钥只能写入未提交的 `.env`，不要写入源码、Issue 或日志。
+
+配置真实 AI：
+
+```bash
+cp .env.example .env
+# 编辑 .env，填写 MJ_AI_API_KEY、MJ_AI_BASE_URL、MJ_AI_MODEL
+./scripts/dev-up.sh --rebuild
+curl http://127.0.0.1:8787/api/v1/ai/config
+```
+
+真实模型会收到候选股票的行情、技术因子、历史后验、新闻标题、美股和板块摘要。不要在自定义新闻或股票备注中放入个人信息或账户凭据。
+
+默认研究数据来自东方财富聚合新闻、腾讯美股行情和新浪行业板块；响应保留来源、采集时间与交易日期。任一来源失败时会在 `context.errors` 中明确返回，不会用估算值填补。
 
 ## 常用操作
 

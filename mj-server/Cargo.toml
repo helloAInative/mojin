@@ -2,6 +2,7 @@
 name = "mj-server"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.88"
 description = "摸金小王子 · 家庭自用 AI 投研信号系统 NAS 后端"
 license = "MIT"
 repository = "https://github.com/helloAInative/mojin"
@@ -23,7 +24,8 @@ uuid = { version = "1", features = ["v4", "serde"] }
 thiserror = "2"
 anyhow = "1"
 dotenvy = "0.15"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "json"] }
 encoding_rs = "0.8"
 futures = "0.3"
 bytes = "1"
+quick-xml = { version = "0.38", features = ["serialize"] }

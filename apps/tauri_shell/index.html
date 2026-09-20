@@ -212,6 +212,7 @@
     let lastHealthz = null;
     let lastEquity = null;
     let snapshotStatus = "";
+    let researchResult = null;
     // 信号 tab 本地状态
     let signalFilter = { levels: new Set(["risk","confirm","strong","tip"]), code: "" };
     let expandedSignalId = null;
@@ -301,7 +302,7 @@
     function errHint(path, err) {
       // 给常见错误出修复提示
       const m = String(err || "");
-      if (/Failed to fetch|NetworkError/i.test(m)) {
+      if (/Failed to fetch|NetworkError|Load failed/i.test(m)) {
         return "服务连不上。先确认 ./scripts/dev-up.sh 已启动，或者顶部地址是不是错的（默认 http://127.0.0.1:8787）。";
       }
       if (/404/.test(m)) return "接口 " + path + " 在当前版本里不存在，可能服务版本不匹配。";
@@ -649,13 +650,26 @@
 
     /* AI */
     async function renderAi() {
-      const [usage, stats] = await Promise.all([apiOrError("/api/v1/ai/usage?limit=20"), apiOrError("/api/v1/ws/stats")]);
+      const [usage, stats, config] = await Promise.all([
+        apiOrError("/api/v1/ai/usage?limit=20"),
+        apiOrError("/api/v1/ws/stats"),
+        apiOrError("/api/v1/ai/config"),
+      ]);
       const wsClient = stats.ok ? stats.data.clients : null;
       const topics = stats.ok ? (stats.data.topics || []).join(", ") : "—";
       const rows = usage.ok ? (usage.data.rows || []) : [];
+      const aiConfig = config.ok ? config.data : null;
       return `
-        <p class="page-intro">5 个本地启发式角色 + 加权仲裁。当前默认 0 token、0 成本，只是行为记录。</p>
+        <p class="page-intro">汇总新闻、昨日美股、行业板块、历史后验与技术指标，由五个独立角色分析并加权仲裁。</p>
         <div class="grid">
+          <div class="card">
+            <h2>五路 AI</h2>
+            ${!aiConfig ? errBlock("/api/v1/ai/config", config.error) : `
+              <div class="row"><span class="k">模式</span><span class="v">${aiConfig.remote_enabled ? '<span class="pill ok">真实模型</span>' : '<span class="pill acc">本地启发式</span>'}</span></div>
+              <div class="row"><span class="k">默认模型</span><span class="v">${esc(aiConfig.default_model)}</span></div>
+              <div class="row"><span class="k">Token</span><span class="v">${aiConfig.token_configured ? "服务端已配置" : "未配置"}</span></div>
+              <div class="row"><span class="k">接口</span><span class="v">${esc(aiConfig.base_url || "—")}</span></div>`}
+          </div>
           <div class="card">
             <h2>WS 客户端${tip("ws_clients")}</h2>
             <div class="stat">
@@ -690,6 +704,16 @@
           </div>
         </div>
         <div class="card" style="margin-top:14px">
+          <h2>智能候选池</h2>
+          <div class="empty-hint">代码留空时读取自选池；最多分析 12 只，返回综合排名前 5。</div>
+          <div class="toolbar" style="margin-top:12px">
+            <input id="researchCodes" style="width:360px" placeholder="sz300623, sh600519（可选）" />
+            <button id="researchGo">生成研究候选</button>
+            <span id="researchStatus" class="meta"></span>
+          </div>
+        </div>
+        <div id="researchResult">${renderResearchResult()}</div>
+        <div class="card" style="margin-top:14px">
           <h2>试一次分析</h2>
           <div class="toolbar">
             <input id="aiCode" placeholder="sz300623" value="sz300623" />
@@ -699,6 +723,46 @@
           <pre id="aiResult">点击按钮 → 调用 /api/v1/ai/analyze/{code}</pre>
         </div>
       `;
+    }
+
+    function renderResearchResult() {
+      if (!researchResult) return "";
+      const data = researchResult;
+      const context = data.context || {};
+      const candidates = data.candidates || [];
+      const market = context.us_market || [];
+      const sectors = context.sectors || [];
+      const news = context.news || [];
+      const verdictLevel = (verdict) => verdict === "buy" ? "strong" : verdict === "sell" ? "risk" : "tip";
+      return `
+        <div class="card" style="margin-top:14px">
+          <h2>研究候选 <span class="h2-sub">${esc(new Date(data.as_of).toLocaleString())}</span></h2>
+          ${candidates.length === 0 ? emptyBlock("没有可用候选", "检查代码格式、后端网络和行情源。") : `
+            <table><thead><tr><th>排名</th><th>代码</th><th>名称</th><th>价格</th><th>结论</th><th>得分</th><th>置信</th><th>五角色快览</th></tr></thead>
+            <tbody>${candidates.map((c, index) => {
+              const roleCells = (c.roles || []).map(r => {
+                const cls = r.score > 0.05 ? "pos" : r.score < -0.05 ? "neg" : "";
+                const tag = {technician:"技",fundamental:"基",risk:"险",position:"仓",psychology:"心"}[r.role] || r.role;
+                return `<span class="factor" title="${esc(r.body)}"><span class="w" style="color:${r.score > 0 ? 'var(--ok)' : r.score < 0 ? 'var(--bad)' : 'var(--muted)'}">${tag} ${r.score >= 0 ? "+" : ""}${r.score.toFixed(2)}</span></span>`;
+              }).join("");
+              return `<tr>
+              <td>${index + 1}</td><td>${esc(c.code)}</td><td>${esc(c.name)}</td><td>${fmtNum(c.price)}</td>
+              <td>${pillFor(verdictLevel(c.verdict))} ${esc(c.verdict)}</td>
+              <td class="${c.final_score >= 0 ? "pos" : "neg"}">${fmtNum(c.final_score)}</td>
+              <td>${(c.final_confidence * 100).toFixed(0)}%</td>
+              <td><div class="factor-list" style="margin:0">${roleCells}</div></td>
+            </tr><tr><td colspan="8"><details><summary>仲裁理由</summary><pre>${esc(c.rationale)}</pre></details></td></tr>`;
+            }).join("")}</tbody></table>`}
+          ${(data.failures || []).length ? `<div class="err">失败：${esc(data.failures.map(x => `${x.code}: ${x.error}`).join("；"))}</div>` : ""}
+        </div>
+        <div class="grid" style="margin-top:14px">
+          <div class="card"><h2>昨日美股</h2>${market.length ? market.map(m => `<div class="row"><span class="k">${esc(m.name)} · ${esc(m.session_date)}</span><span class="v ${m.change_pct >= 0 ? "pos" : "neg"}">${m.change_pct >= 0 ? "+" : ""}${fmtNum(m.change_pct)}%</span></div>`).join("") : emptyBlock("数据不可用", "采集失败会列在新闻卡片底部。")}</div>
+          <div class="card"><h2>A 股行业板块</h2>${sectors.length ? sectors.slice(0, 8).map(s => `<div class="row"><span class="k">${esc(s.name)}</span><span class="v ${s.change_pct >= 0 ? "pos" : "neg"}">${s.change_pct >= 0 ? "+" : ""}${fmtNum(s.change_pct)}%</span></div>`).join("") : emptyBlock("数据不可用", "稍后重试或检查服务端网络。")}</div>
+        </div>
+        <div class="card" style="margin-top:14px"><h2>新闻摘要 <span class="h2-sub">${news.length} 条 · 标题情绪 ${fmtNum(context.news_sentiment)}</span></h2>
+          ${news.length ? news.slice(0, 12).map(n => `<div class="row"><span class="k">${esc(n.source)}</span><span class="v" style="max-width:78%;text-align:right">${esc(n.title)}</span></div>`).join("") : emptyBlock("暂无新闻", "可在服务端通过 MJ_NEWS_FEEDS 配置 RSS。")}
+          ${(context.errors || []).length ? `<div class="err">${esc(context.errors.join("；"))}</div>` : ""}
+        </div>`;
     }
 
     /* WS 日志 */
@@ -748,6 +812,8 @@
       // AI 按钮绑定
       const goBtn = document.getElementById("aiGo");
       if (goBtn) goBtn.onclick = runAnalyze;
+      const researchBtn = document.getElementById("researchGo");
+      if (researchBtn) researchBtn.onclick = runResearchSelect;
       const markBtn = document.getElementById("refreshValuation");
       if (markBtn) markBtn.onclick = runSnapshot;
 
@@ -825,6 +891,34 @@
         out.textContent = JSON.stringify(j, null, 2);
       } catch (e) {
         out.textContent = String(e);
+      }
+    }
+
+    async function runResearchSelect() {
+      const btn = $("researchGo");
+      const status = $("researchStatus");
+      const codes = $("researchCodes").value
+        .split(/[,，\s]+/)
+        .map(value => value.trim())
+        .filter(Boolean);
+      btn.disabled = true;
+      const restore = () => { btn.disabled = false; };
+      status.textContent = "采集数据并运行五路分析，可能需要几十秒…";
+      try {
+        const res = await fetch(BASE + "/api/v1/research/select", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ codes, max_candidates: 5 }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        researchResult = data;
+        await render();
+        status.textContent = `完成：${(data.candidates || []).length} 个候选`;
+      } catch (e) {
+        status.textContent = String(e);
+      } finally {
+        restore();
       }
     }
 

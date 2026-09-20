@@ -8,6 +8,7 @@ mod export;
 mod market;
 mod paper;
 mod perf;
+mod research;
 mod routes;
 mod signals;
 mod universe;

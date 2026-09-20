@@ -5,7 +5,7 @@
 ## 开始开发
 
 1. Fork 仓库并从 `main` 创建分支。
-2. 安装 Rust 1.85 或更高版本。
+2. 安装 Rust 1.88 或更高版本。
 3. 在 `mj-server` 目录执行 `cargo test`。
 4. 使用 `./scripts/dev-up.sh --fg` 启动服务，通过 `/healthz` 检查运行状态。
 

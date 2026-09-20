@@ -37,6 +37,14 @@ services:
       # 仅存 NAS .env；客户端不接触
       MJ_AI_API_KEY: ${MJ_AI_API_KEY:-}
       MJ_AI_BASE_URL: ${MJ_AI_BASE_URL:-}
+      MJ_AI_MODEL: ${MJ_AI_MODEL:-qwen-plus}
+      MJ_AI_TIMEOUT_SECS: ${MJ_AI_TIMEOUT_SECS:-45}
+      MJ_AI_MODEL_TECHNICIAN: ${MJ_AI_MODEL_TECHNICIAN:-}
+      MJ_AI_MODEL_FUNDAMENTAL: ${MJ_AI_MODEL_FUNDAMENTAL:-}
+      MJ_AI_MODEL_RISK: ${MJ_AI_MODEL_RISK:-}
+      MJ_AI_MODEL_POSITION: ${MJ_AI_MODEL_POSITION:-}
+      MJ_AI_MODEL_PSYCHOLOGY: ${MJ_AI_MODEL_PSYCHOLOGY:-}
+      MJ_NEWS_FEEDS: ${MJ_NEWS_FEEDS:-}
     volumes:
       # 持久化 SQLite
       - ./data:/data

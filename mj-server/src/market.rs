@@ -418,7 +418,7 @@ mod tests {
     }
 }
 
-async fn http_get(url: &str, referer: Option<&str>) -> anyhow::Result<String> {
+pub(crate) async fn http_get(url: &str, referer: Option<&str>) -> anyhow::Result<String> {
     let client = reqwest::Client::builder()
         .timeout(HTTP_TIMEOUT)
         .connect_timeout(Duration::from_secs(5))

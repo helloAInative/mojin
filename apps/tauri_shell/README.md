@@ -5,6 +5,8 @@
 ## 当前能力
 
 - 总览、模拟账户、持仓估值、信号、后验、AI 仲裁和 WebSocket 日志
+- 新闻、昨日美股、行业板块、历史后验和技术指标驱动的智能候选池
+- 服务端可配置五路 OpenAI 兼容模型，单路失败自动使用本地启发式
 - 服务地址本地保存、格式校验与 WebSocket 断线重连
 - macOS `.app` / `.dmg` 和 Windows NSIS `.exe` 打包配置
 - 最小 Tauri 权限：主窗口只有 `core:default`，没有文件、Shell 或系统命令权限
@@ -41,6 +43,8 @@ npm run desktop:build
 - Windows：`src-tauri/target/release/bundle/nsis/`
 
 当前安装包只包含客户端。运行客户端前需单独启动 `mj-server`，默认地址为 `http://127.0.0.1:8787`。顶部输入框可以连接局域网中的服务，地址会保存在本机 WebView 存储中。
+
+真实 AI 的 Token 只配置在项目根目录未提交的 `.env` 中。客户端通过 `/api/v1/ai/config` 显示启用状态，不会读取或展示 Token。
 
 ## 浏览器预览
 

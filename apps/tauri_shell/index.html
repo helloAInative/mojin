@@ -6,79 +6,173 @@
   <title>摸金小王子 · 复盘工作台</title>
   <style>
     :root {
-      --bg:#0d1117; --card:#161b22; --line:#30363d; --txt:#e6edf3; --muted:#9aa7b4;
-      --ok:#3fb950; --bad:#f85149; --acc:#f0b429; --tip:#58a6ff;
+      --bg:#0b0f15; --card:#141a23; --card-2:#1a2230; --line:#283342;
+      --txt:#e6edf3; --muted:#8fa1b3; --muted-2:#5f7286;
+      --ok:#3fb950; --bad:#f85149; --acc:#f0b429; --tip:#58a6ff; --vio:#bc8cff;
+      --shadow: 0 1px 0 rgba(255,255,255,.02), 0 8px 24px rgba(0,0,0,.25);
     }
     * { box-sizing: border-box; }
     body { margin:0; font-family: "PingFang SC", system-ui, -apple-system, sans-serif;
-           background:var(--bg); color:var(--txt); font-size:13px; }
-    header { padding:12px 18px; border-bottom:1px solid var(--line);
-            display:flex; align-items:center; gap:14px; background:#0a0d12; }
-    header h1 { font-size:15px; margin:0; color:var(--acc); letter-spacing:1px; }
+           background:var(--bg); color:var(--txt); font-size:14px; line-height:1.55;
+           background-image: radial-gradient(1200px 600px at 10% -10%, rgba(88,166,255,.06), transparent 60%),
+                             radial-gradient(900px 500px at 110% 10%, rgba(240,180,41,.05), transparent 60%); }
+    header { padding:14px 22px; border-bottom:1px solid var(--line);
+            display:flex; align-items:center; gap:14px; background:rgba(10,13,18,.6);
+            backdrop-filter: blur(8px); position:sticky; top:0; z-index:10; }
+    header h1 { font-size:16px; margin:0; color:var(--acc); letter-spacing:2px; font-weight:700; }
     header .meta { color:var(--muted); font-size:12px; }
-    header input { padding:6px 10px; border-radius:10px; border:1px solid var(--line);
-                   background:#0d1117; color:var(--txt); width:260px; font-family:ui-monospace,monospace; font-size:12px; }
-    header button { padding:6px 12px; border:0; border-radius:10px; background:var(--acc);
-                    color:#111; font-weight:600; cursor:pointer; font-size:12px; }
-    .dot { display:inline-block; width:8px; height:8px; margin-right:6px; border-radius:50%; background:var(--muted); }
-    .dot.ok { background:var(--ok); box-shadow:0 0 0 3px rgba(63,185,80,.12); }
-    .dot.bad { background:var(--bad); box-shadow:0 0 0 3px rgba(248,81,73,.12); }
-    nav { display:flex; gap:6px; padding:8px 18px; border-bottom:1px solid var(--line); background:#0a0d12; }
-    nav button { padding:6px 12px; border:1px solid var(--line); border-radius:8px;
-                 background:transparent; color:var(--muted); cursor:pointer; font-size:12px; }
-    nav button.active { background:var(--card); color:var(--txt); border-color:var(--acc); }
-    main { padding:16px 18px; }
-    .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:12px; }
-    .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; }
-    .card h2 { margin:0 0 10px; font-size:13px; color:var(--muted); font-weight:600; letter-spacing:.5px; }
-    .row { display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px dashed #1f242c; }
+    header input { padding:8px 12px; border-radius:10px; border:1px solid var(--line);
+                   background:#0d1117; color:var(--txt); width:280px; font-family:ui-monospace,monospace; font-size:12px;
+                   transition: border-color .15s; }
+    header input:focus { outline:none; border-color:var(--tip); }
+    header button { padding:8px 16px; border:0; border-radius:10px; background:var(--acc);
+                    color:#111; font-weight:700; cursor:pointer; font-size:12px;
+                    transition: transform .08s, box-shadow .15s; }
+    header button:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(240,180,41,.25); }
+    header button:active { transform: translateY(0); }
+    .dot { display:inline-block; width:8px; height:8px; margin-right:6px; border-radius:50%; background:var(--muted);
+           transition: background .2s, box-shadow .2s; }
+    .dot.ok { background:var(--ok); box-shadow:0 0 0 3px rgba(63,185,80,.18); }
+    .dot.bad { background:var(--bad); box-shadow:0 0 0 3px rgba(248,81,73,.18); }
+    nav { display:flex; gap:6px; padding:10px 22px; border-bottom:1px solid var(--line);
+          background:rgba(10,13,18,.6); backdrop-filter: blur(8px); position:sticky; top:57px; z-index:9; }
+    nav button { padding:7px 14px; border:1px solid transparent; border-radius:8px;
+                 background:transparent; color:var(--muted); cursor:pointer; font-size:13px;
+                 transition: background .15s, color .15s, border-color .15s; }
+    nav button:hover { color:var(--txt); background:rgba(255,255,255,.04); }
+    nav button.active { background:var(--card); color:var(--txt); border-color:var(--line);
+                        box-shadow: inset 0 -2px 0 var(--acc); }
+    main { padding:18px 22px 60px; max-width:1400px; margin:0 auto; }
+    .page-intro { color:var(--muted); font-size:13px; margin:0 0 14px; }
+    .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:14px; }
+    .card { background:linear-gradient(180deg, var(--card), var(--card-2)); border:1px solid var(--line);
+            border-radius:12px; padding:16px; box-shadow:var(--shadow); }
+    .card h2 { margin:0 0 12px; font-size:13px; color:var(--muted); font-weight:600;
+               letter-spacing:.5px; display:flex; align-items:center; gap:8px; }
+    .card h2 .h2-sub { color:var(--muted-2); font-weight:400; font-size:11px; }
+    .card-head { display:flex; align-items:center; justify-content:space-between; gap:8px;
+                 margin:0 0 12px; }
+    .card-head h2 { margin:0; }
+    .export-btn { padding:5px 12px; border:1px solid var(--line); border-radius:6px;
+                  background:var(--card-2); color:var(--txt); font-size:11px;
+                  font-weight:600; letter-spacing:.3px; cursor:pointer;
+                  transition: background .15s, border-color .15s; }
+    .export-btn:hover { background:rgba(88,166,255,.12); border-color:var(--tip); color:var(--tip); }
+    .export-btn:active { transform: translateY(1px); }
+    .row { display:flex; justify-content:space-between; align-items:baseline; padding:6px 0;
+           border-bottom:1px dashed rgba(255,255,255,.04); gap:12px; }
     .row:last-child { border:0; }
-    .row .k { color:var(--muted); }
-    .row .v { font-family:ui-monospace,monospace; }
-    table { width:100%; border-collapse:collapse; font-size:12px; }
-    th, td { padding:6px 8px; border-bottom:1px solid var(--line); text-align:left;
-            font-family:ui-monospace,monospace; }
-    th { color:var(--muted); font-weight:500; font-size:11px; letter-spacing:.5px; }
-    tr:hover td { background:#1a1f26; }
-    .pill { display:inline-block; padding:2px 6px; border-radius:6px; font-size:11px; }
-    .pill.ok { background:rgba(63,185,80,.18); color:var(--ok); }
-    .pill.bad { background:rgba(248,81,73,.18); color:var(--bad); }
-    .pill.tip { background:rgba(88,166,255,.18); color:var(--tip); }
-    .pill.acc { background:rgba(240,180,41,.18); color:var(--acc); }
-    pre { margin:0; padding:8px; background:#0a0d12; border-radius:6px; font-size:11px;
-          max-height:200px; overflow:auto; border:1px solid var(--line); }
-    .empty { color:var(--muted); font-style:italic; padding:8px 0; }
-    .err { color:var(--bad); padding:8px 0; }
-    .log { font-family:ui-monospace,monospace; font-size:11px; padding:6px 10px;
-           border-bottom:1px solid #1f242c; display:flex; gap:10px; }
+    .row .k { color:var(--muted); display:inline-flex; align-items:center; gap:4px; }
+    .row .v { font-family:ui-monospace,monospace; font-size:14px; }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th, td { padding:8px 10px; border-bottom:1px solid var(--line); text-align:left;
+            font-family:ui-monospace,monospace; vertical-align: middle; }
+    th { color:var(--muted); font-weight:500; font-size:11px; letter-spacing:.5px;
+         text-transform: uppercase; background: rgba(255,255,255,.02); }
+    tr.clickable { cursor:pointer; transition: background .12s; }
+    tr.clickable:hover td { background:#1a2330; }
+    tr.expanded td { background:#1a2330; border-bottom-color: transparent; }
+    tr.detail-row td { background:#0e141d; padding:0; border-bottom:1px solid var(--line); }
+    .pill { display:inline-block; padding:3px 8px; border-radius:6px; font-size:11px;
+            font-weight:600; letter-spacing:.3px; }
+    .pill.ok { background:rgba(63,185,80,.16); color:var(--ok); }
+    .pill.bad { background:rgba(248,81,73,.16); color:var(--bad); }
+    .pill.tip { background:rgba(88,166,255,.16); color:var(--tip); }
+    .pill.acc { background:rgba(240,180,41,.16); color:var(--acc); }
+    .pill.vio { background:rgba(188,140,255,.16); color:var(--vio); }
+    .pill.muted { background:rgba(255,255,255,.06); color:var(--muted); }
+    pre { margin:0; padding:10px 12px; background:#0a0d12; border-radius:8px; font-size:11px;
+          max-height:240px; overflow:auto; border:1px solid var(--line); font-family: ui-monospace, monospace; }
+    .empty { color:var(--muted); padding:24px 12px; text-align:center; font-style:normal;
+             background:rgba(255,255,255,.02); border:1px dashed var(--line); border-radius:10px; }
+    .empty .empty-title { color:var(--txt); font-size:14px; margin-bottom:6px; }
+    .empty .empty-hint { font-size:12px; color:var(--muted-2); }
+    .err { color:var(--bad); padding:14px 16px; background:rgba(248,81,73,.08);
+           border:1px solid rgba(248,81,73,.3); border-radius:10px; }
+    .err .err-hint { color:var(--muted); font-size:12px; margin-top:6px; }
+    .log { font-family:ui-monospace,monospace; font-size:11px; padding:7px 10px;
+           border-bottom:1px solid #1f242c; display:flex; gap:10px; align-items:center; }
+    .log:hover { background:rgba(255,255,255,.03); }
     .log .ts { color:var(--muted); white-space:nowrap; }
-    .log .topic { font-weight:600; min-width:64px; }
+    .log .topic { font-weight:700; min-width:64px; text-transform: uppercase; font-size:10px; }
     .log .topic.signal { color:var(--acc); }
     .log .topic.fill   { color:var(--ok); }
     .log .topic.equity { color:var(--tip); }
-    .log .topic.healthz{ color:#bc8cff; }
+    .log .topic.healthz{ color:var(--vio); }
     .log .topic.ai     { color:#ff7b72; }
-    .log .body { color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .stat { display:flex; gap:18px; flex-wrap:wrap; }
-    .stat .item { display:flex; flex-direction:column; }
-    .stat .item .lbl { color:var(--muted); font-size:11px; }
-    .stat .item .val { font-family:ui-monospace,monospace; font-size:18px; font-weight:600; }
+    .log .body { color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+    .stat { display:flex; gap:24px; flex-wrap:wrap; }
+    .stat .item { display:flex; flex-direction:column; gap:2px; }
+    .stat .item .lbl { color:var(--muted); font-size:11px; display:inline-flex; align-items:center; gap:4px; }
+    .stat .item .val { font-family:ui-monospace,monospace; font-size:22px; font-weight:700; letter-spacing:.5px; }
+    .stat .item .sub { color:var(--muted-2); font-size:11px; }
     .pos { color:var(--ok); }
     .neg { color:var(--bad); }
-    .foot { color:var(--muted); font-size:11px; padding:14px 18px;
-            border-top:1px solid var(--line); text-align:center; margin-top:24px; }
-    .toolbar { display:flex; gap:6px; margin-bottom:8px; }
-    .toolbar input { background:#0d1117; border:1px solid var(--line); color:var(--txt);
-                       padding:6px 10px; border-radius:8px; font-size:12px; width:120px;
+    .foot { color:var(--muted-2); font-size:11px; padding:18px 22px;
+            border-top:1px solid var(--line); text-align:center; margin-top:32px; }
+    .toolbar { display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; align-items:center; }
+    .toolbar input, .toolbar select { background:#0d1117; border:1px solid var(--line); color:var(--txt);
+                       padding:7px 10px; border-radius:8px; font-size:12px;
                        font-family:ui-monospace,monospace; }
-    .toolbar button { padding:6px 10px; border:0; border-radius:8px; background:var(--tip);
-                      color:#111; font-weight:600; font-size:12px; cursor:pointer; }
+    .toolbar input:focus, .toolbar select:focus { outline:none; border-color:var(--tip); }
+    .toolbar button { padding:7px 14px; border:0; border-radius:8px; background:var(--tip);
+                      color:#0b0f15; font-weight:700; font-size:12px; cursor:pointer;
+                      transition: transform .08s, box-shadow .15s; }
+    .toolbar button:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(88,166,255,.25); }
+    .toolbar button.alt { background:var(--card-2); color:var(--txt); border:1px solid var(--line); }
+    .toolbar .spacer { flex:1; }
+    .toolbar .meta { color:var(--muted); font-size:12px; }
+    /* tooltips */
+    .q { display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px;
+         border-radius:50%; background:rgba(255,255,255,.08); color:var(--muted-2); font-size:10px;
+         cursor:help; font-style:normal; font-weight:700; margin-left:4px;
+         transition: background .15s, color .15s; position:relative; }
+    .q:hover { background:rgba(88,166,255,.18); color:var(--tip); }
+    .q[data-tip]:hover::after {
+      content: attr(data-tip);
+      position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+      background:#0a0d12; color:var(--txt); border:1px solid var(--line);
+      padding:8px 10px; border-radius:8px; font-size:12px; font-weight:400;
+      white-space: normal; max-width: 280px; width: max-content; line-height:1.4;
+      box-shadow: var(--shadow); z-index: 100; pointer-events:none;
+    }
+    .q[data-tip]:hover::before {
+      content: ""; position: absolute; bottom: calc(100% + 2px); left: 50%; transform: translateX(-50%);
+      border:6px solid transparent; border-top-color: var(--line); z-index:100;
+    }
+    /* perf bars */
+    .perf-row { display:grid; grid-template-columns: 56px 56px 1fr; gap:8px;
+                align-items:center; padding:8px 0; border-bottom:1px dashed rgba(255,255,255,.04); }
+    .perf-row:last-child { border:0; }
+    .perf-row .label { font-size:12px; color:var(--muted); }
+    .perf-row .value { font-family:ui-monospace,monospace; font-size:13px; font-weight:600; text-align:right; }
+    .perf-bar { height:10px; background:rgba(255,255,255,.04); border-radius:6px; overflow:hidden;
+                position:relative; }
+    .perf-bar .fill { height:100%; border-radius:6px; transition: width .3s ease; }
+    .perf-bar .fill.pos { background: linear-gradient(90deg, #2ea043, #3fb950); }
+    .perf-bar .fill.neg { background: linear-gradient(90deg, #da3633, #f85149); }
+    .perf-bar .fill.zero { background: var(--muted-2); }
+    /* signal detail panel */
+    .detail-panel { padding:16px; background:#0e141d; border-radius:8px; margin:6px 12px 12px; }
+    .detail-panel h3 { margin:0 0 8px; font-size:13px; color:var(--muted); font-weight:600; }
+    .detail-panel .factor-list { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; }
+    .factor { display:inline-flex; align-items:center; gap:4px; padding:4px 8px;
+              border-radius:6px; background:rgba(255,255,255,.04); font-size:11px;
+              font-family: ui-monospace,monospace; color:var(--muted); }
+    .factor .w { color:var(--acc); font-weight:700; }
+    .factor .d { color:var(--muted-2); }
+    .perf-grid { display:grid; grid-template-columns: repeat(5, 1fr); gap:8px; margin-top:6px; }
+    .perf-grid .cell { padding:8px; background:rgba(255,255,255,.03); border-radius:6px; text-align:center; }
+    .perf-grid .cell .w { font-size:11px; color:var(--muted); margin-bottom:2px; }
+    .perf-grid .cell .r { font-family:ui-monospace,monospace; font-size:13px; font-weight:700; }
+    .perf-grid .cell.pending .r { color:var(--muted-2); }
     @media (max-width: 760px) {
       header { align-items:stretch; flex-wrap:wrap; }
       header input { width:min(100%, 360px); flex:1; }
-      nav { overflow-x:auto; }
+      nav { overflow-x:auto; top:99px; }
       nav button { white-space:nowrap; }
       main { padding:12px; }
+      .perf-grid { grid-template-columns: repeat(2, 1fr); }
       .card { overflow-x:auto; }
     }
   </style>
@@ -87,7 +181,7 @@
   <header>
     <h1>摸金小王子</h1>
     <span id="clientKind" class="meta">复盘工作台</span>
-    <input id="base" value="http://127.0.0.1:8787" />
+    <input id="base" value="http://127.0.0.1:8787" placeholder="服务地址，例如 http://127.0.0.1:8787" />
     <button id="btnConnect">连接</button>
     <span class="meta"><span id="dot" class="dot"></span><span id="status">离线</span></span>
   </header>
@@ -118,6 +212,43 @@
     let lastHealthz = null;
     let lastEquity = null;
     let snapshotStatus = "";
+    // 信号 tab 本地状态
+    let signalFilter = { levels: new Set(["risk","confirm","strong","tip"]), code: "" };
+    let expandedSignalId = null;
+    let signalDetailCache = {}; // id -> { signal, perf, factors }
+
+    /* ---------- 解释器 ---------- */
+    const TIPS = {
+      equity: "账户总价值 = 可用现金 + 持仓市值（含未标记行情按成本）。",
+      cash: "没有下进冻结单的现金。",
+      frozen: "已经下单但还没成交、被锁住的现金。",
+      market_value: "按当前行情算出来的持仓总市值。",
+      unpriced_positions: "还没拿到最新行情、暂用成本估值的持仓数。点『刷新估值』重新抓。",
+      hit_rate: "在某个时间窗口（比如 5 日）后盈利的信号占比。50% 算跑赢掷硬币。",
+      avg_return: "该窗口下所有样本的平均涨跌幅。",
+      best: "该窗口下表现最好的那一次。",
+      worst: "该窗口下表现最差的那一次。",
+      samples: "参与统计的信号数量。少于 20 几乎没参考价值。",
+      signals: "数据库里保存的总信号条数。",
+      signals_labeled: "已经有 N 日后实际收益记录的信号数，可以用来算胜率。",
+      schema: "数据库结构版本，跟服务一起发布。",
+      level_risk: "风险：提示下跌或破位信号，可能要减仓回避。",
+      level_confirm: "确认：多个指标一起印证，方向较为明确。",
+      level_strong: "强信号：多个高权重因子同向，置信度更高。",
+      level_tip: "提示：单一指标触发，仅供观察。",
+      confidence: "置信度：服务对这条信号强度的自评（0–100%）。",
+      snapshot: "把当前所有持仓的行情快照保存到权益曲线里。",
+      tokens_in: "AI 输入的 token 数。本地启发式默认 0。",
+      tokens_out: "AI 输出的 token 数。本地启发式默认 0。",
+      cost_estimate: "按模型计费折算的成本，本地启发式一律 0。",
+      ws_clients: "当前在线的 WS 客户端数。",
+      topics: "已经订阅的事件主题。",
+      ws_log: "WS 实时事件流。signal=新信号 / fill=成交 / equity=权益推送 / healthz=健康 / ai=AI 调用。",
+    };
+    function tip(key) {
+      const t = TIPS[key] || "";
+      return `<i class="q" data-tip="${esc(t)}">?</i>`;
+    }
 
     function normalizeBase(raw) {
       const value = String(raw || "").trim().replace(/\/$/, "");
@@ -141,6 +272,43 @@
       return res.json();
     }
 
+    /* ---------- CSV 导出 ----------
+     * 走浏览器原生下载：动态建一个 <a download> 触发。
+     * Tauri WebView 在 macOS 上把文件落到默认下载目录（~/Downloads）。
+     * 不走 Blob+fetch：WKWebView/Wry 默认不弹保存对话框，会试图 navigate 到 csv 链接。
+     */
+    function pad2(n) { return String(n).padStart(2, "0"); }
+    function exportFilename(prefix) {
+      const d = new Date();
+      return `${prefix}-${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}.csv`;
+    }
+    function exportCsv(path) {
+      // url 加 cache buster，避免某些 webview 缓存 CSV
+      const url = BASE + path + (path.includes("?") ? "&" : "?") + "_t=" + Date.now();
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = ""; // 让后端 Content-Disposition 决定文件名
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => a.remove(), 100);
+    }
+
+    async function apiOrError(path) {
+      try { return { ok: true, data: await api(path) }; }
+      catch (e) { return { ok: false, error: String(e) }; }
+    }
+    function errHint(path, err) {
+      // 给常见错误出修复提示
+      const m = String(err || "");
+      if (/Failed to fetch|NetworkError/i.test(m)) {
+        return "服务连不上。先确认 ./scripts/dev-up.sh 已启动，或者顶部地址是不是错的（默认 http://127.0.0.1:8787）。";
+      }
+      if (/404/.test(m)) return "接口 " + path + " 在当前版本里不存在，可能服务版本不匹配。";
+      if (/500|502|503/.test(m)) return "服务内部错误，去看 mj-server 日志。";
+      return m;
+    }
+
     /* ---------- WS ---------- */
     function connectWs() {
       const generation = ++wsGeneration;
@@ -154,6 +322,10 @@
         ws = new WebSocket(u);
         $("status").textContent = "连接中…";
         $("dot").className = "dot";
+        // onerror 在每次重连时一定会先 fire 一次（浏览器规范），紧跟 close。
+        // 这里只更新视觉但不改成"错误"文案，避免在 onopen 之后才到达的
+        // error 事件把"WS 已连接"覆盖掉；真正的状态由 onopen/onclose 管理。
+        ws.onerror = () => { $("dot").className = "dot"; };
         ws.onopen = () => {
           $("status").textContent = "WS 已连接";
           $("dot").className = "dot ok";
@@ -168,7 +340,6 @@
           $("dot").className = "dot bad";
           reconnectTimer = setTimeout(connectWs, 3000);
         };
-        ws.onerror = () => { $("status").textContent = "WS 错误"; $("dot").className = "dot bad"; };
         ws.onmessage = (e) => {
           try {
             const ev = JSON.parse(e.data);
@@ -190,15 +361,20 @@
     let currentTab = "dashboard";
     let renderVersion = 0;
     async function loadAll() {
-      try {
-        const [healthz, account, signals, perf] = await Promise.all([
-          api("/healthz"), api("/api/v1/paper/account"),
-          api("/api/v1/signals"), api("/api/v1/performance?days=5&limit=200"),
-        ]);
-        return { healthz, account, signals: signals?.signals || [], perf };
-      } catch (e) {
-        return { error: String(e) };
-      }
+      const results = await Promise.all([
+        apiOrError("/healthz"),
+        apiOrError("/api/v1/paper/account"),
+        apiOrError("/api/v1/signals"),
+        apiOrError("/api/v1/performance?days=5&limit=200"),
+      ]);
+      const [h, a, s, p] = results;
+      return {
+        errors: results.filter(r => !r.ok).map(r => r.error),
+        healthz: h.ok ? h.data : null,
+        account: a.ok ? a.data : null,
+        signals: s.ok ? (s.data.signals || []) : [],
+        perf: p.ok ? p.data : null,
+      };
     }
 
     function fmtPct(x) {
@@ -215,71 +391,98 @@
     function pillFor(level) {
       const m = { risk: "bad", confirm: "tip", strong: "ok", tip: "acc" };
       const cls = m[level] || "acc";
-      return `<span class="pill ${cls}">${esc(level)}</span>`;
+      const tipKey = "level_" + level;
+      return `<span class="pill ${cls}">${esc(level)}</span>${tip(tipKey)}`;
     }
 
+    function emptyBlock(title, hint, action) {
+      return `<div class="empty">
+        <div class="empty-title">${esc(title)}</div>
+        <div class="empty-hint">${esc(hint)}${action ? `<br><br>${action}` : ""}</div>
+      </div>`;
+    }
+    function errBlock(path, err) {
+      return `<div class="err">
+        <div><b>${esc(path)}</b> 加载失败</div>
+        <div class="err-hint">${esc(errHint(path, err))}</div>
+      </div>`;
+    }
+
+    /* 总览 */
     function renderDashboard(d) {
-      if (d.error) return `<div class="err">${esc(d.error)}</div>`;
+      if (!d.healthz) {
+        return `<p class="page-intro">一眼看当前账户／盘、信号池、健康度。先把服务连上，下面才有数。</p>
+          <div class="grid">
+            ${errBlock("/healthz", d.errors[0] || "未知")}
+          </div>`;
+      }
       const h = d.healthz;
-      const a = d.account;
+      const a = d.account || {};
       const p = d.perf?.stats;
       return `
+        <p class="page-intro">一眼看当前账户／盘、信号池、健康度。绿色 WS 点亮说明有实时推送。</p>
         <div class="grid">
           <div class="card">
-            <h2>健康</h2>
+            <h2>服务健康 ${tip("schema")}</h2>
             <div class="stat">
-              <div class="item"><span class="lbl">服务</span><span class="val">${esc(h.service)}</span></div>
+              <div class="item"><span class="lbl">服务${tip("ws_clients")}</span><span class="val">${esc(h.service)}</span></div>
               <div class="item"><span class="lbl">schema</span><span class="val">${esc(h.version)}</span></div>
               <div class="item"><span class="lbl">表</span><span class="val">${h.tables}</span></div>
-              <div class="item"><span class="lbl">信号</span><span class="val">${h.signals}</span></div>
-              <div class="item"><span class="lbl">已后验</span><span class="val">${h.signals_labeled}</span></div>
+              <div class="item"><span class="lbl">信号${tip("signals")}</span><span class="val">${h.signals}</span></div>
+              <div class="item"><span class="lbl">已后验${tip("signals_labeled")}</span><span class="val">${h.signals_labeled}</span></div>
             </div>
           </div>
           <div class="card">
             <h2>账户</h2>
-            <div class="row"><span class="k">现金</span><span class="v">${fmtNum(a.cash)}</span></div>
-            <div class="row"><span class="k">冻结</span><span class="v">${fmtNum(a.frozen)}</span></div>
-            <div class="row"><span class="k">权益</span><span class="v">${fmtNum(a.equity)}</span></div>
+            <div class="row"><span class="k">现金${tip("cash")}</span><span class="v">${fmtNum(a.cash)}</span></div>
+            <div class="row"><span class="k">冻结${tip("frozen")}</span><span class="v">${fmtNum(a.frozen)}</span></div>
+            <div class="row"><span class="k">权益${tip("equity")}</span><span class="v">${fmtNum(a.equity)}</span></div>
             <div class="row"><span class="k">持仓</span><span class="v">${(a.positions||[]).length} 个</span></div>
-            <div class="row"><span class="k">按成本估算</span><span class="v">${a.unpriced_positions || 0} 个</span></div>
+            <div class="row"><span class="k">按成本估算${tip("unpriced_positions")}</span><span class="v">${a.unpriced_positions || 0} 个</span></div>
             ${lastEquity ? `<div class="row"><span class="k">WS 推送</span><span class="v">equity=${fmtNum(lastEquity.equity)}</span></div>` : ""}
           </div>
           <div class="card">
             <h2>后验（5 日）</h2>
             ${p ? `
-              <div class="row"><span class="k">样本</span><span class="v">${p.samples}</span></div>
-              <div class="row"><span class="k">胜率</span><span class="v">${p.hit_rate === null ? "—" : (p.hit_rate*100).toFixed(1)+"%"}</span></div>
-              <div class="row"><span class="k">平均</span><span class="v pos">${fmtPct(p.avg_return)}</span></div>
-              <div class="row"><span class="k">最好</span><span class="v pos">${fmtPct(p.best)}</span></div>
-              <div class="row"><span class="k">最差</span><span class="v neg">${fmtPct(p.worst)}</span></div>
-            ` : `<div class="empty">无样本</div>`}
+              <div class="row"><span class="k">样本${tip("samples")}</span><span class="v">${p.samples}</span></div>
+              <div class="row"><span class="k">胜率${tip("hit_rate")}</span><span class="v">${p.hit_rate === null ? "—" : (p.hit_rate*100).toFixed(1)+"%"}</span></div>
+              <div class="row"><span class="k">平均${tip("avg_return")}</span><span class="v pos">${fmtPct(p.avg_return)}</span></div>
+              <div class="row"><span class="k">最好${tip("best")}</span><span class="v pos">${fmtPct(p.best)}</span></div>
+              <div class="row"><span class="k">最差${tip("worst")}</span><span class="v neg">${fmtPct(p.worst)}</span></div>
+            ` : emptyBlock("暂无样本", "需要 confirm／strong 等级的信号并走完后验。")}
           </div>
         </div>
       `;
     }
 
+    /* 账户 */
     function renderAccount(d) {
-      if (d.error) return `<div class="err">${esc(d.error)}</div>`;
+      if (!d.account) return errBlock("/api/v1/paper/account", d.errors[0] || "未知");
       const a = d.account;
       const pos = a.positions || [];
       return `
-        <div class="card" style="margin-bottom:12px">
+        <p class="page-intro">看模拟盘账户和持仓。点『刷新估值』会把当前行情写进权益曲线。</p>
+        <div class="card" style="margin-bottom:14px">
           <h2>账户</h2>
           <div class="stat">
-            <div class="item"><span class="lbl">现金</span><span class="val">${fmtNum(a.cash)}</span></div>
-            <div class="item"><span class="lbl">冻结</span><span class="val">${fmtNum(a.frozen)}</span></div>
-            <div class="item"><span class="lbl">市值</span><span class="val">${fmtNum(a.market_value)}</span></div>
-            <div class="item"><span class="lbl">权益</span><span class="val">${fmtNum(a.equity)}</span></div>
+            <div class="item"><span class="lbl">现金${tip("cash")}</span><span class="val">${fmtNum(a.cash)}</span></div>
+            <div class="item"><span class="lbl">冻结${tip("frozen")}</span><span class="val">${fmtNum(a.frozen)}</span></div>
+            <div class="item"><span class="lbl">市值${tip("market_value")}</span><span class="val">${fmtNum(a.market_value)}</span></div>
+            <div class="item"><span class="lbl">权益${tip("equity")}</span><span class="val">${fmtNum(a.equity)}</span></div>
           </div>
-          <div class="toolbar" style="margin-top:12px">
-            <button id="refreshValuation">刷新估值并记录快照</button>
+          <div class="toolbar" style="margin-top:14px">
+            <button id="refreshValuation">刷新估值并记录快照${tip("snapshot")}</button>
             <span id="snapshotStatus" class="meta">${esc(snapshotStatus || `${a.unpriced_positions || 0} 个持仓尚无行情标记`)}</span>
           </div>
         </div>
         <div class="card">
-          <h2>持仓</h2>
-          ${pos.length === 0 ? `<div class="empty">暂无持仓</div>` : `
-            <table>
+          <div class="card-head">
+            <h2>持仓 <span class="h2-sub">${pos.length} 个</span></h2>
+            <button class="export-btn" data-export-path="/api/v1/export/positions.csv">导出 CSV</button>
+          </div>
+          ${pos.length === 0
+            ? emptyBlock("暂无持仓", "可以先到后端下单，或加自选后跑一次 scan。", "示例：curl -X POST http://127.0.0.1:8787/api/v1/paper/orders -d '{\"code\":\"sz000001\",\"side\":\"buy\",\"qty\":100,\"price\":11}'")
+            : `<table>
               <thead><tr><th>代码</th><th>名称</th><th>数量</th><th>可用</th><th>成本</th><th>均价</th><th>行情价</th><th>估值</th><th>来源 / 行情时间 / 抓取</th></tr></thead>
               <tbody>
                 ${pos.map(p => `
@@ -292,7 +495,7 @@
                     <td>${fmtNum(p.avg_cost)}</td>
                     <td>${fmtNum(p.market_price)}</td>
                     <td>${fmtNum(p.market_value)}</td>
-                    <td>${p.marked_at ? `${esc(p.mark_source)}<br>行情 ${esc(p.quote_time && p.quote_time !== "--" ? p.quote_time : "时间未知")}<br>抓取 ${esc(new Date(p.marked_at).toLocaleString())}` : "按成本"}</td>
+                    <td>${p.marked_at ? `${esc(p.mark_source)}<br>行情 ${esc(p.quote_time && p.quote_time !== "--" ? p.quote_time : "时间未知")}<br>抓取 ${esc(new Date(p.marked_at).toLocaleString())}` : '<span class="pill muted">按成本</span>'}</td>
                   </tr>`).join("")}
               </tbody>
             </table>`}
@@ -300,121 +503,232 @@
       `;
     }
 
+    /* 信号 */
     function renderSignals(d) {
-      if (d.error) return `<div class="err">${esc(d.error)}</div>`;
-      const sigs = d.signals;
+      if (!d.healthz) return errBlock("/api/v1/signals", d.errors[0] || "未知");
+      const sigs = d.signals || [];
+      const filtered = sigs.filter(s => signalFilter.levels.has(s.level) &&
+        (!signalFilter.code || (s.code + " " + (s.name||"")).toLowerCase().includes(signalFilter.code.toLowerCase())));
+      const levels = ["risk","confirm","strong","tip"];
+      const levelLabels = { risk:"风险", confirm:"确认", strong:"强", tip:"提示" };
       return `
+        <p class="page-intro">最近 50 条技术信号。点击行看因子与后验；上面可以按等级和代码过滤。</p>
+        <div class="toolbar">
+          <span class="meta">等级：</span>
+          ${levels.map(l => `
+            <button class="alt ${signalFilter.levels.has(l) ? 'active' : ''}" data-lvl="${l}"
+              style="${signalFilter.levels.has(l) ? '' : 'opacity:.45'}; margin-right:-4px;">
+              ${levelLabels[l]}${tip("level_" + l)}
+            </button>`).join("")}
+          <input id="signalCodeFilter" placeholder="代码/名称（包含）" value="${esc(signalFilter.code)}" style="width:160px"/>
+          <span class="spacer"></span>
+          <span class="meta">${filtered.length} / ${sigs.length} 条</span>
+        </div>
         <div class="card">
-          <h2>最近信号</h2>
-          ${sigs.length === 0 ? `<div class="empty">暂无</div>` : `
-            <table>
-              <thead><tr><th>时间</th><th>代码</th><th>名称</th><th>等级</th><th>置信</th><th>价格</th><th>标题</th></tr></thead>
+          <div class="card-head">
+            <h2>信号列表</h2>
+            <button class="export-btn" data-export-path="/api/v1/export/signals.csv?limit=2000">导出 CSV</button>
+          </div>
+          ${filtered.length === 0
+            ? emptyBlock(sigs.length === 0 ? "暂无信号" : "过滤后为空", sigs.length === 0 ? "后端跑过 evaluate 或 scan 后才会有。" : "把过滤条件放宽试试。")
+            : `<table>
+              <thead><tr><th>时间</th><th>代码</th><th>名称</th><th>等级</th><th>置信${tip("confidence")}</th><th>价格</th><th>标题</th></tr></thead>
               <tbody>
-                ${sigs.slice(0, 50).map(s => `
-                  <tr>
-                    <td>${esc(fmtTs(s.fired_at))}</td>
-                    <td>${esc(s.code)}</td>
-                    <td>${esc(s.name)}</td>
-                    <td>${pillFor(s.level)}</td>
-                    <td>${(s.confidence*100).toFixed(0)}%</td>
-                    <td>${fmtNum(s.price)}</td>
-                    <td>${esc(s.title)}</td>
-                  </tr>`).join("")}
+                ${filtered.slice(0, 50).map(s => renderSignalRow(s)).join("")}
               </tbody>
             </table>`}
         </div>
       `;
     }
 
-    async function renderPerformance() {
-      try {
-        const r = await api("/api/v1/performance?days=5&limit=200");
-        const ws = r.windows || [];
-        return `
-          <div class="card">
-            <h2>多窗口后验（confirm/strong）</h2>
-            <table>
-              <thead><tr><th>窗口</th><th>样本</th><th>胜率</th><th>平均</th><th>最好</th><th>最差</th></tr></thead>
-              <tbody>
-                ${ws.map(w => `
-                  <tr>
-                    <td>${w.window} 日</td>
-                    <td>${w.samples}</td>
-                    <td>${w.hit_rate === null ? "—" : (w.hit_rate*100).toFixed(1)+"%"}</td>
-                    <td class="${w.avg_return >= 0 ? "pos" : "neg"}">${fmtPct(w.avg_return)}</td>
-                    <td class="pos">${fmtPct(w.best)}</td>
-                    <td class="neg">${fmtPct(w.worst)}</td>
-                  </tr>`).join("")}
-              </tbody>
-            </table>
-          </div>`;
-      } catch (e) { return `<div class="err">${esc(e)}</div>`; }
+    function renderSignalRow(s) {
+      const expanded = expandedSignalId === s.id;
+      const cached = signalDetailCache[s.id];
+      const main = `
+        <tr class="clickable ${expanded ? 'expanded' : ''}" data-signal="${esc(s.id)}">
+          <td>${esc(fmtTs(s.fired_at))}</td>
+          <td>${esc(s.code)}</td>
+          <td>${esc(s.name)}</td>
+          <td>${pillFor(s.level)}</td>
+          <td>${(s.confidence*100).toFixed(0)}%</td>
+          <td>${fmtNum(s.price)}</td>
+          <td>${esc(s.title)}</td>
+        </tr>`;
+      if (!expanded) return main;
+      const detail = `
+        <tr class="detail-row"><td colspan="7">
+          ${cached ? renderSignalDetail(cached) : '<div class="empty"><div class="empty-hint">加载详情中…</div></div>'}
+        </td></tr>`;
+      return main + detail;
     }
 
-    async function renderAi() {
+    function renderSignalDetail(d) {
+      const perf = d.perf;
+      const cells = [1, 3, 5, 10, 20].map(w => {
+        const k = "ret_" + w + "d";
+        const v = perf ? perf[k] : null;
+        if (perf && perf.pending && perf.pending.includes(w)) {
+          return `<div class="cell pending"><div class="w">${w} 日</div><div class="r">尚未到期</div></div>`;
+        }
+        return `<div class="cell"><div class="w">${w} 日</div><div class="r ${v > 0 ? 'pos' : v < 0 ? 'neg' : ''}">${fmtPct(v)}</div></div>`;
+      }).join("");
+      const factors = (d.factors || []);
+      return `<div class="detail-panel">
+        <h3>触发因子</h3>
+        ${factors.length === 0
+          ? '<div class="empty-hint">该信号没有记录因子（老数据或手动写入）。</div>'
+          : `<div class="factor-list">${factors.map(f => `
+              <span class="factor"><span class="w">+${esc(f.weight.toFixed(1))}</span>${esc(f.key)}${f.detail ? `<span class="d">· ${esc(f.detail)}</span>` : ""}</span>
+            `).join("")}</div>`}
+        <h3>后验收益${tip("hit_rate")}</h3>
+        <div class="perf-grid">${cells}</div>
+        ${perf && perf.labeled_at ? `<div class="meta" style="margin-top:8px">最近一次回填：${esc(fmtTs(perf.labeled_at))}</div>` : ""}
+      </div>`;
+    }
+
+    async function loadSignalDetail(id) {
+      if (signalDetailCache[id]) return signalDetailCache[id];
       try {
-        const [usage, stats] = await Promise.all([
-          api("/api/v1/ai/usage?limit=20"),
-          api("/api/v1/ws/stats"),
-        ]);
-        const wsClient = stats.clients;
-        const topics = (stats.topics || []).join(", ");
-        const rows = usage.rows || [];
-        return `
-          <div class="card" style="margin-bottom:12px">
-            <h2>WS 客户端</h2>
-            <div class="row"><span class="k">在线</span><span class="v">${wsClient}</span></div>
-            <div class="row"><span class="k">订阅</span><span class="v">${esc(topics || "—")}</span></div>
+        const j = await api("/api/v1/signal/" + encodeURIComponent(id));
+        signalDetailCache[id] = j;
+        return j;
+      } catch (e) {
+        signalDetailCache[id] = { error: String(e) };
+        return signalDetailCache[id];
+      }
+    }
+
+    /* 后验 */
+    async function renderPerformance() {
+      const r = await apiOrError("/api/v1/performance?days=5&limit=200");
+      if (!r.ok) return errBlock("/api/v1/performance", r.error);
+      const ws = r.data.windows || [];
+      // 取最大绝对值做柱状图比例尺
+      const maxAbs = Math.max(0.001, ...ws.map(w => Math.max(Math.abs(w.avg_return || 0), Math.abs(w.best || 0), Math.abs(w.worst || 0))));
+      const rows = ws.map(w => {
+        const avg = w.avg_return;
+        const isPos = avg > 0;
+        const isNeg = avg < 0;
+        const width = Math.min(100, Math.abs(avg || 0) / maxAbs * 100);
+        const cls = isPos ? "pos" : isNeg ? "neg" : "zero";
+        return `<div class="perf-row">
+          <span class="label">${w.window} 日</span>
+          <span class="value ${isPos ? 'pos' : isNeg ? 'neg' : ''}">${fmtPct(avg)}</span>
+          <div class="perf-bar"><div class="fill ${cls}" style="width:${width.toFixed(1)}%"></div></div>
+        </div>`;
+      }).join("");
+      const stats = r.data.stats;
+      return `
+        <p class="page-intro">按窗口看历史信号的平均表现。柱越长，绝对收益越大。颜色只表示方向，不代表好坏。</p>
+        <div class="card" style="margin-bottom:14px">
+          <h2>主窗口（${stats?.days ?? 5} 日）${tip("hit_rate")}</h2>
+          ${stats ? `
+            <div class="stat">
+              <div class="item"><span class="lbl">样本${tip("samples")}</span><span class="val">${stats.samples}</span></div>
+              <div class="item"><span class="lbl">胜率</span><span class="val">${stats.hit_rate === null ? "—" : (stats.hit_rate*100).toFixed(1)+"%"}</span></div>
+              <div class="item"><span class="lbl">平均</span><span class="val pos">${fmtPct(stats.avg_return)}</span></div>
+              <div class="item"><span class="lbl">最好</span><span class="val pos">${fmtPct(stats.best)}</span></div>
+              <div class="item"><span class="lbl">最差</span><span class="val neg">${fmtPct(stats.worst)}</span></div>
+            </div>
+          ` : emptyBlock("暂无样本", "需要 confirm／strong 等级的信号并走完后验。")}
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <h2>多窗口柱状图</h2>
+            <button class="export-btn" data-export-path="/api/v1/export/pnl.csv?limit=2000">导出权益 CSV</button>
+          </div>
+          ${ws.length === 0 ? emptyBlock("暂无窗口", "样本不足时会留空。") : `
+            <div class="perf-row" style="border:0">
+              <span class="label">窗口</span><span class="value">平均</span><span></span>
+            </div>
+            ${rows}
+          `}
+        </div>
+      `;
+    }
+
+    /* AI */
+    async function renderAi() {
+      const [usage, stats] = await Promise.all([apiOrError("/api/v1/ai/usage?limit=20"), apiOrError("/api/v1/ws/stats")]);
+      const wsClient = stats.ok ? stats.data.clients : null;
+      const topics = stats.ok ? (stats.data.topics || []).join(", ") : "—";
+      const rows = usage.ok ? (usage.data.rows || []) : [];
+      return `
+        <p class="page-intro">5 个本地启发式角色 + 加权仲裁。当前默认 0 token、0 成本，只是行为记录。</p>
+        <div class="grid">
+          <div class="card">
+            <h2>WS 客户端${tip("ws_clients")}</h2>
+            <div class="stat">
+              <div class="item"><span class="lbl">在线</span><span class="val">${wsClient === null ? "—" : wsClient}</span></div>
+            </div>
+            <div class="row"><span class="k">订阅${tip("topics")}</span><span class="v">${esc(topics)}</span></div>
           </div>
           <div class="card">
-            <h2>AI 用量</h2>
-            ${rows.length === 0 ? `<div class="empty">暂无调用（mock 默认 token=0、cost=0）</div>` : `
-              <table>
-                <thead><tr><th>时间</th><th>模型</th><th>任务</th><th>tok in</th><th>tok out</th><th>ms</th><th>cost</th></tr></thead>
-                <tbody>
-                  ${rows.map(r => `
-                    <tr>
-                      <td>${esc(fmtTs(r.created_at))}</td>
-                      <td>${esc(r.model)}</td>
-                      <td>${esc(r.task)}</td>
-                      <td>${r.tokens_in}</td>
-                      <td>${r.tokens_out}</td>
-                      <td>${r.latency_ms}</td>
-                      <td>${fmtNum(r.cost_estimate)}</td>
-                    </tr>`).join("")}
-                </tbody>
-              </table>`}
-            <div class="toolbar" style="margin-top:12px">
-              <input id="aiCode" placeholder="sz300623" value="sz300623" />
-              <input id="aiSignalId" placeholder="signal_id（可选）" />
-              <button id="aiGo">跑一次 analyze</button>
+            <div class="card-head">
+              <h2>AI 用量</h2>
+              <button class="export-btn" data-export-path="/api/v1/export/fills.csv?limit=2000">导出成交 CSV</button>
             </div>
-            <pre id="aiResult">点击按钮 → 调用 /api/v1/ai/analyze/{code}</pre>
-          </div>`;
-      } catch (e) { return `<div class="err">${esc(e)}</div>`; }
+            ${!usage.ok
+              ? errBlock("/api/v1/ai/usage", usage.error)
+              : (rows.length === 0
+                  ? emptyBlock("暂无调用", "下面点按钮跑一次。")
+                  : `<table>
+                    <thead><tr><th>时间</th><th>模型</th><th>任务</th><th>tok in${tip("tokens_in")}</th><th>tok out${tip("tokens_out")}</th><th>ms</th><th>cost${tip("cost_estimate")}</th></tr></thead>
+                    <tbody>
+                      ${rows.map(r => `
+                        <tr>
+                          <td>${esc(fmtTs(r.created_at))}</td>
+                          <td>${esc(r.model)}</td>
+                          <td>${esc(r.task)}</td>
+                          <td>${r.tokens_in}</td>
+                          <td>${r.tokens_out}</td>
+                          <td>${r.latency_ms}</td>
+                          <td>${fmtNum(r.cost_estimate)}</td>
+                        </tr>`).join("")}
+                    </tbody>
+                  </table>`)}
+          </div>
+        </div>
+        <div class="card" style="margin-top:14px">
+          <h2>试一次分析</h2>
+          <div class="toolbar">
+            <input id="aiCode" placeholder="sz300623" value="sz300623" />
+            <input id="aiSignalId" placeholder="signal_id（可选）" />
+            <button id="aiGo">跑一次 analyze</button>
+          </div>
+          <pre id="aiResult">点击按钮 → 调用 /api/v1/ai/analyze/{code}</pre>
+        </div>
+      `;
     }
 
+    /* WS 日志 */
     function renderWsLog() {
-      if (wsLog.length === 0) return `<div class="card"><h2>WS 日志</h2><div class="empty">连接后等待推送…</div></div>`;
+      if (wsLog.length === 0) {
+        return `<p class="page-intro">WS 实时事件流${tip("ws_log")}。连上服务后等推送即可。</p>
+          <div class="card">${emptyBlock("暂无事件", "确认顶部状态点是否变绿；没变说明 WS 没连上。")}</div>`;
+      }
       return `
+        <p class="page-intro">WS 实时事件流${tip("ws_log")}。新→旧，最近 ${wsLog.length} 条。</p>
         <div class="card">
-          <h2>WS 日志（最近 ${wsLog.length} 条，新→旧）</h2>
           ${wsLog.map(l => `
             <div class="log">
               <span class="ts">${esc(fmtTs(l.ts))}</span>
               <span class="topic ${esc(l.topic)}">${esc(l.topic)}</span>
               <span class="body" title="${esc(l.body)}">${esc(l.body)}</span>
             </div>`).join("")}
-        </div>`;
+        </div>
+      `;
     }
 
+    /* ---------- 主渲染 ---------- */
     async function render() {
       const version = ++renderVersion;
       const tabName = currentTab;
-      $("main").innerHTML = `<div class="empty">加载中…</div>`;
+      $("main").innerHTML = `<div class="empty"><div class="empty-hint">加载中…</div></div>`;
       let html = "";
       if (tabName === "dashboard" || tabName === "account" || tabName === "signals") {
         const d = await loadAll();
+        if (version !== renderVersion) return;
         if (tabName === "dashboard") html = renderDashboard(d);
         else if (tabName === "account") html = renderAccount(d);
         else if (tabName === "signals") html = renderSignals(d);
@@ -427,13 +741,56 @@
       }
       if (version !== renderVersion) return;
       $("main").innerHTML = html;
+      bindHandlers();
+    }
+
+    function bindHandlers() {
       // AI 按钮绑定
       const goBtn = document.getElementById("aiGo");
       if (goBtn) goBtn.onclick = runAnalyze;
       const markBtn = document.getElementById("refreshValuation");
       if (markBtn) markBtn.onclick = runSnapshot;
+
+      // 导出 CSV 按钮：data-export-path 指向后端 /api/v1/export/*.csv
+      document.querySelectorAll("[data-export-path]").forEach(b => {
+        b.onclick = (e) => {
+          e.preventDefault();
+          const path = b.getAttribute("data-export-path");
+          if (path) exportCsv(path);
+        };
+      });
+
+      // 信号 tab：等级筛选
+      document.querySelectorAll("[data-lvl]").forEach(b => {
+        b.onclick = () => {
+          const l = b.dataset.lvl;
+          if (signalFilter.levels.has(l)) signalFilter.levels.delete(l);
+          else signalFilter.levels.add(l);
+          if (signalFilter.levels.size === 0) signalFilter.levels = new Set(["risk","confirm","strong","tip"]);
+          render();
+        };
+      });
+      const codeInput = document.getElementById("signalCodeFilter");
+      if (codeInput) {
+        codeInput.oninput = (e) => { signalFilter.code = e.target.value; render(); };
+      }
+
+      // 信号 tab：点击行展开
+      document.querySelectorAll("tr.clickable[data-signal]").forEach(tr => {
+        tr.onclick = async () => {
+          const id = tr.dataset.signal;
+          if (expandedSignalId === id) {
+            expandedSignalId = null;
+          } else {
+            expandedSignalId = id;
+            await loadSignalDetail(id);
+          }
+          render();
+        };
+      });
     }
 
+    /* ---------- 动作 ---------- */
     async function runSnapshot() {
       const btn = $("refreshValuation");
       const out = $("snapshotStatus");
@@ -477,6 +834,8 @@
         document.querySelectorAll("#nav button").forEach(x => x.classList.remove("active"));
         b.classList.add("active");
         currentTab = b.dataset.tab;
+        // 切到非 signals tab 时收起展开
+        if (currentTab !== "signals") expandedSignalId = null;
         render();
       };
     });

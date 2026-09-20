@@ -14,6 +14,9 @@ apps/flutter_shell/build/
 apps/tauri_shell/node_modules/
 apps/tauri_shell/dist/
 apps/tauri_shell/src-tauri/target/
+apps/tauri_shell/src-tauri/gen/
+apps/tauri_shell/src-tauri/icons/android/
+apps/tauri_shell/src-tauri/icons/ios/
 
 .DS_Store
 *.log

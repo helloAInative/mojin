@@ -1,0 +1,17 @@
+{
+  "name": "mojin-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "摸金小王子 macOS 与 Windows 桌面客户端",
+  "license": "MIT",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "node ../../scripts/check-web-js.mjs && cargo check --manifest-path src-tauri/Cargo.toml",
+    "desktop:dev": "tauri dev",
+    "desktop:build": "tauri build",
+    "desktop:icon": "tauri icon app-icon.svg"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.11.5"
+  }
+}

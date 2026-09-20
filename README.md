@@ -1,9 +1,10 @@
 # 摸金小王子（Mojin）
 
 [![CI](https://github.com/helloAInative/mojin/actions/workflows/ci.yml/badge.svg)](https://github.com/helloAInative/mojin/actions/workflows/ci.yml)
+[![Desktop](https://github.com/helloAInative/mojin/actions/workflows/desktop.yml/badge.svg)](https://github.com/helloAInative/mojin/actions/workflows/desktop.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-面向家庭自用场景的 A 股行情、技术信号、模拟交易和复盘服务。后端使用 Rust、Axum 与 SQLite，附带一个零构建的 Web 工作台和 Flutter 参考客户端。
+面向家庭自用场景的 A 股行情、技术信号、模拟交易和复盘服务。后端使用 Rust、Axum 与 SQLite，附带基于 Tauri 2 的 macOS/Windows 客户端、零构建 Web 工作台和 Flutter 参考客户端。
 
 > 本项目不连接券商、不执行真实交易、不代客理财。行情和模型输出可能延迟或出错，所有内容仅供软件研究与纸上统计，不构成投资建议。
 
@@ -17,6 +18,7 @@
 - 自选组和指数池维护
 - 五角色本地启发式分析、加权仲裁、调用统计与 WebSocket 推送
 - WebSocket 主题订阅：`signal`、`fill`、`equity`、`healthz`、`ai`
+- macOS 与 Windows 桌面客户端，支持服务地址记忆和断线重连
 
 ## 项目状态
 
@@ -54,6 +56,22 @@ python3 -m http.server 8080
 ```
 
 浏览器访问 `http://127.0.0.1:8080/tauri_shell/`。
+
+### macOS / Windows 客户端
+
+```bash
+cd apps/tauri_shell
+npm install
+npm run desktop:dev
+```
+
+生成当前平台安装包：
+
+```bash
+npm run desktop:build
+```
+
+详细环境要求和产物路径见 [桌面客户端文档](apps/tauri_shell/README.md)。
 
 ## Docker Compose
 
@@ -108,7 +126,7 @@ curl -X POST http://127.0.0.1:8787/api/v1/ai/analyze/sz300623 \
 mojin/
 ├── mj-server/          # Rust API、行情、信号、模拟盘和 WebSocket
 ├── apps/
-│   ├── tauri_shell/    # 可直接运行的静态 Web 工作台
+│   ├── tauri_shell/    # Tauri 2 macOS/Windows 客户端与共享 Web 工作台
 │   └── flutter_shell/  # Flutter 参考客户端源码
 ├── docs/               # 架构和 API 文档
 ├── scripts/            # 开发、日志和备份脚本

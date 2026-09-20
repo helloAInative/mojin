@@ -1,0 +1,19 @@
+[package]
+name = "mojin-desktop"
+version = "0.1.0"
+description = "摸金小王子桌面客户端"
+authors = ["helloAInative"]
+license = "MIT"
+repository = "https://github.com/helloAInative/mojin"
+edition = "2021"
+rust-version = "1.85"
+
+[lib]
+name = "mojin_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+tauri = { version = "2.11.5", features = [] }

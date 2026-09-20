@@ -1,0 +1,53 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "摸金小王子",
+  "version": "0.1.0",
+  "identifier": "com.helloainative.mojin",
+  "build": {
+    "beforeDevCommand": "npm run build",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "摸金小王子",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 640,
+        "center": true
+      }
+    ],
+    "security": {
+      "capabilities": ["desktop"],
+      "csp": "default-src 'self'; connect-src 'self' http: https: ws: wss:; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Finance",
+    "copyright": "Copyright © 2026 helloAInative",
+    "shortDescription": "A 股行情、技术信号、模拟交易与复盘客户端",
+    "longDescription": "摸金小王子是面向本地研究场景的 A 股行情、技术信号、模拟交易与复盘桌面客户端。",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "10.15",
+      "signingIdentity": "-"
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      }
+    }
+  }
+}

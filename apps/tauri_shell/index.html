@@ -20,6 +20,9 @@
                    background:#0d1117; color:var(--txt); width:260px; font-family:ui-monospace,monospace; font-size:12px; }
     header button { padding:6px 12px; border:0; border-radius:10px; background:var(--acc);
                     color:#111; font-weight:600; cursor:pointer; font-size:12px; }
+    .dot { display:inline-block; width:8px; height:8px; margin-right:6px; border-radius:50%; background:var(--muted); }
+    .dot.ok { background:var(--ok); box-shadow:0 0 0 3px rgba(63,185,80,.12); }
+    .dot.bad { background:var(--bad); box-shadow:0 0 0 3px rgba(248,81,73,.12); }
     nav { display:flex; gap:6px; padding:8px 18px; border-bottom:1px solid var(--line); background:#0a0d12; }
     nav button { padding:6px 12px; border:1px solid var(--line); border-radius:8px;
                  background:transparent; color:var(--muted); cursor:pointer; font-size:12px; }
@@ -70,12 +73,20 @@
                        font-family:ui-monospace,monospace; }
     .toolbar button { padding:6px 10px; border:0; border-radius:8px; background:var(--tip);
                       color:#111; font-weight:600; font-size:12px; cursor:pointer; }
+    @media (max-width: 760px) {
+      header { align-items:stretch; flex-wrap:wrap; }
+      header input { width:min(100%, 360px); flex:1; }
+      nav { overflow-x:auto; }
+      nav button { white-space:nowrap; }
+      main { padding:12px; }
+      .card { overflow-x:auto; }
+    }
   </style>
 </head>
 <body>
   <header>
     <h1>摸金小王子</h1>
-    <span class="meta">复盘工作台</span>
+    <span id="clientKind" class="meta">复盘工作台</span>
     <input id="base" value="http://127.0.0.1:8787" />
     <button id="btnConnect">连接</button>
     <span class="meta"><span id="dot" class="dot"></span><span id="status">离线</span></span>
@@ -97,13 +108,31 @@
   <script>
     const $ = (id) => document.getElementById(id);
     const TABS = ["dashboard", "account", "signals", "performance", "ai", "wslog"];
+    const STORAGE_KEY = "mojin.desktop.baseUrl";
     let BASE = "http://127.0.0.1:8787";
     let ws = null;
+    let wsGeneration = 0;
+    let reconnectTimer = null;
     let wsLog = [];
     const MAX_WS = 100;
     let lastHealthz = null;
     let lastEquity = null;
     let snapshotStatus = "";
+
+    function normalizeBase(raw) {
+      const value = String(raw || "").trim().replace(/\/$/, "");
+      const parsed = new URL(value);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        throw new Error("服务地址必须使用 http:// 或 https://");
+      }
+      return value;
+    }
+
+    function applyBase(raw) {
+      BASE = normalizeBase(raw);
+      $("base").value = BASE;
+      localStorage.setItem(STORAGE_KEY, BASE);
+    }
 
     /* ---------- HTTP ---------- */
     async function api(path) {
@@ -114,8 +143,13 @@
 
     /* ---------- WS ---------- */
     function connectWs() {
+      const generation = ++wsGeneration;
+      clearTimeout(reconnectTimer);
       try {
-        if (ws) ws.close();
+        if (ws) {
+          ws.onclose = null;
+          ws.close();
+        }
         const u = BASE.replace(/^http/, "ws") + "/ws";
         ws = new WebSocket(u);
         $("status").textContent = "连接中…";
@@ -128,7 +162,12 @@
             topics: ["signal", "fill", "equity", "healthz", "ai"]
           }));
         };
-        ws.onclose = () => { $("status").textContent = "WS 断开"; $("dot").className = "dot bad"; };
+        ws.onclose = () => {
+          if (generation !== wsGeneration) return;
+          $("status").textContent = "WS 断开，3 秒后重连";
+          $("dot").className = "dot bad";
+          reconnectTimer = setTimeout(connectWs, 3000);
+        };
         ws.onerror = () => { $("status").textContent = "WS 错误"; $("dot").className = "dot bad"; };
         ws.onmessage = (e) => {
           try {
@@ -441,9 +480,24 @@
         render();
       };
     });
-    $("btnConnect").onclick = () => { BASE = $("base").value.replace(/\/$/, ""); connectWs(); render(); };
-    $("base").addEventListener("change", () => { BASE = $("base").value.replace(/\/$/, ""); connectWs(); render(); });
-    BASE = $("base").value.replace(/\/$/, "");
+    function updateConnection() {
+      try {
+        applyBase($("base").value);
+        connectWs();
+        render();
+      } catch (e) {
+        $("status").textContent = String(e.message || e);
+        $("dot").className = "dot bad";
+      }
+    }
+
+    $("btnConnect").onclick = updateConnection;
+    $("base").addEventListener("change", updateConnection);
+    try { applyBase(localStorage.getItem(STORAGE_KEY) || $("base").value); }
+    catch { applyBase("http://127.0.0.1:8787"); }
+    const isDesktop = Boolean(window.__TAURI_INTERNALS__);
+    const platform = /Mac/.test(navigator.platform) ? "macOS" : /Win/.test(navigator.platform) ? "Windows" : "Web";
+    $("clientKind").textContent = isDesktop ? `${platform} 客户端` : "Web 工作台";
     connectWs();
     render();
     // 周期性刷新 dashboard tab

@@ -1,45 +1,69 @@
-# tauri_shell
+# Mojin Desktop
 
-Tauri 端占位壳 — 静态 Web 视图，对接后端 HTTP + WS。
+基于 Tauri 2 的摸金小王子桌面客户端，同一套代码支持 macOS 和 Windows。客户端内嵌现有复盘工作台，通过 HTTP 和 WebSocket 连接 `mj-server`。
 
-## 文件
+## 当前能力
 
-- `index.html` — 复盘工作台（总览/账户/信号/后验/AI/WS 日志，5+1 视图）
-- `tauri.conf.json` — Tauri 配置（如已生成）
+- 总览、模拟账户、持仓估值、信号、后验、AI 仲裁和 WebSocket 日志
+- 服务地址本地保存、格式校验与 WebSocket 断线重连
+- macOS `.app` / `.dmg` 和 Windows NSIS `.exe` 打包配置
+- 最小 Tauri 权限：主窗口只有 `core:default`，没有文件、Shell 或系统命令权限
+- GitHub Actions 在 macOS 和 Windows 上执行原生编译检查
 
-## 视图
+## 开发
 
-1. **总览**：Healthz + 账户 + 后验（5 日）
-2. **账户/持仓**：现金/冻结/权益/市值 + 持仓行情标记 + 一键刷新估值和记录快照
-3. **信号**：最近 50 条信号
-4. **后验**：1d/3d/5d/10d/20d 多窗口胜率/最好/最差
-5. **AI**：WS 客户端统计 + ai_usage 表 + 一键触发 `/api/v1/ai/analyze/{code}`；可传 `signal_id` 按历史信号当时的价格、等级和因子分析
-6. **WS 日志**：最近 100 条事件
-
-## 后端约定
-
-| 项 | 值 |
-| --- | --- |
-| 端口 | `8787` |
-| Healthz | `GET /healthz` |
-| 账户 | `GET /api/v1/paper/account` |
-| 信号 | `GET /api/v1/signals` |
-| 后验 | `GET /api/v1/performance?days=5&limit=200` |
-| AI 用量 | `GET /api/v1/ai/usage?limit=20` |
-| WS 统计 | `GET /api/v1/ws/stats` |
-| AI 分析 | `POST /api/v1/ai/analyze/{code}` |
-| WS | `ws://host:8787/ws` |
-
-## 启动
+先启动后端：
 
 ```bash
-# 1) 后端
-cd ../../mj-server
-cargo run
+./scripts/dev-up.sh
+```
 
-# 2) 静态壳
-cd ..   # apps/
+再启动桌面客户端：
+
+```bash
+cd apps/tauri_shell
+npm install
+npm run desktop:dev
+```
+
+macOS 需要 Xcode Command Line Tools。Windows 需要 Microsoft C++ Build Tools 的“使用 C++ 的桌面开发”工作负载；Windows 10 1803 及更高版本通常已经包含 WebView2。
+
+## 检查与打包
+
+```bash
+npm run check
+npm run desktop:build
+```
+
+默认产物位置：
+
+- macOS：`src-tauri/target/release/bundle/macos/` 与 `dmg/`
+- Windows：`src-tauri/target/release/bundle/nsis/`
+
+当前安装包只包含客户端。运行客户端前需单独启动 `mj-server`，默认地址为 `http://127.0.0.1:8787`。顶部输入框可以连接局域网中的服务，地址会保存在本机 WebView 存储中。
+
+## 浏览器预览
+
+桌面 UI 仍可作为普通静态页面预览：
+
+```bash
+cd apps
 python3 -m http.server 8080
-# 浏览器打开 http://127.0.0.1:8080/tauri_shell/
-# 顶部 base URL 改成 http://127.0.0.1:8787，点「连接」
+```
+
+打开 `http://127.0.0.1:8080/tauri_shell/`。
+
+## 目录
+
+```text
+tauri_shell/
+├── index.html            # 共享 UI
+├── app-icon.svg          # 应用图标源文件
+├── scripts/build.mjs     # 静态资源构建
+├── package.json          # Tauri CLI 与桌面命令
+└── src-tauri/
+    ├── capabilities/     # 桌面权限边界
+    ├── icons/            # macOS/Windows 图标
+    ├── src/              # 原生入口
+    └── tauri.conf.json   # 窗口、安全与安装包配置
 ```

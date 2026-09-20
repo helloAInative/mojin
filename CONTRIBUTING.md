@@ -12,6 +12,7 @@
 ## 提交要求
 
 - 运行 `cargo fmt --check` 和 `cargo test`。
+- 修改桌面客户端时，在 `apps/tauri_shell` 运行 `npm ci` 和 `npm run check`。
 - 修复缺陷时添加能够重现问题的测试。
 - 修改 API、数据库结构或运行方式时同步更新文档。
 - 不提交 `.env`、API Key、真实账户数据、SQLite 数据库或构建产物。

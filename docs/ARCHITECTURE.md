@@ -11,8 +11,12 @@ flowchart LR
     P --> API[Axum HTTP API]
     API --> W[WebSocket Broker]
     API --> UI[Web 工作台 / Flutter 参考客户端]
+    API --> Desktop[Tauri macOS / Windows 客户端]
     W --> UI
+    W --> Desktop
 ```
+
+桌面客户端复用 Web 工作台，并由系统 WebView 渲染。Tauri 原生层目前只负责窗口和安装包，不开放文件系统、Shell 或任意原生命令。`mj-server` 独立运行，因此客户端可连接本机或家庭网络中的服务实例。
 
 - `market.rs`：行情请求、解析和来源优先级。
 - `signals.rs`：技术指标与信号因子。
@@ -42,4 +46,4 @@ SQLite 使用 WAL、外键和 5 秒 busy timeout。`AppState` 当前持有单连
 - 定时扫描、快照和后验任务；
 - API 身份验证与多账户隔离；
 - 行情缓存、来源健康度和熔断；
-- 完整 Flutter/Tauri 工程及自动发布。
+- Flutter 完整平台工程、桌面端内置后端及签名发布。

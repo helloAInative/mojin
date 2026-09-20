@@ -4,6 +4,7 @@
 mod ai;
 mod db;
 mod error;
+mod export;
 mod market;
 mod paper;
 mod perf;

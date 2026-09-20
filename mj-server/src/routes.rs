@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::ai;
 use crate::db::AppState;
 use crate::error::AppError;
+use crate::export;
 use crate::market::{self, Quote};
 use crate::paper;
 use crate::perf;
@@ -60,6 +61,11 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/v1/ai/usage", get(ai_usage))
         // WS 状态
         .route("/api/v1/ws/stats", get(ws_stats))
+        // 报表导出（CSV / UTF-8 BOM，Excel/Numbers 直接打开）
+        .route("/api/v1/export/signals.csv", get(export::export_signals))
+        .route("/api/v1/export/fills.csv", get(export::export_fills))
+        .route("/api/v1/export/pnl.csv", get(export::export_pnl))
+        .route("/api/v1/export/positions.csv", get(export::export_positions))
 }
 
 #[derive(Serialize)]
@@ -464,6 +470,7 @@ struct SignalDetailResp {
     ok: bool,
     signal: SignalRow,
     perf: Option<perf::PerfRow>,
+    factors: Vec<signals::FactorHit>,
     disclaimer: &'static str,
 }
 
@@ -530,10 +537,26 @@ async fn signal_detail(
                 },
             )
             .ok();
+        let factors: Vec<signals::FactorHit> = {
+            let mut stmt = c
+                .prepare("SELECT factor_key, factor_value, weight, detail FROM signal_factor_hit WHERE signal_id = ? ORDER BY rowid")?;
+            let rows = stmt
+                .query_map(rusqlite::params![id], |r| {
+                    Ok(signals::FactorHit {
+                        key: r.get(0)?,
+                        value: r.get(1)?,
+                        weight: r.get(2)?,
+                        detail: r.get(3)?,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            rows
+        };
         Ok(Json(SignalDetailResp {
             ok: true,
             signal,
             perf,
+            factors,
             disclaimer: "家庭自用 · 不构成投资建议",
         }))
     })

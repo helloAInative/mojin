@@ -59,6 +59,11 @@
                   transition: background .15s, border-color .15s; }
     .export-btn:hover { background:rgba(88,166,255,.12); border-color:var(--tip); color:var(--tip); }
     .export-btn:active { transform: translateY(1px); }
+    .cancel-btn { padding:4px 10px; border:1px solid rgba(248,81,73,.4); border-radius:6px;
+                  background:transparent; color:var(--bad); font-size:11px;
+                  font-weight:600; cursor:pointer; transition: background .15s, border-color .15s; }
+    .cancel-btn:hover { background:rgba(248,81,73,.12); border-color:var(--bad); }
+    .cancel-btn:active { transform: translateY(1px); }
     .row { display:flex; justify-content:space-between; align-items:baseline; padding:6px 0;
            border-bottom:1px dashed rgba(255,255,255,.04); gap:12px; }
     .row:last-child { border:0; }
@@ -367,14 +372,16 @@
         apiOrError("/api/v1/paper/account"),
         apiOrError("/api/v1/signals"),
         apiOrError("/api/v1/performance?days=5&limit=200"),
+        apiOrError("/api/v1/paper/orders?limit=20"),
       ]);
-      const [h, a, s, p] = results;
+      const [h, a, s, p, o] = results;
       return {
         errors: results.filter(r => !r.ok).map(r => r.error),
         healthz: h.ok ? h.data : null,
         account: a.ok ? a.data : null,
         signals: s.ok ? (s.data.signals || []) : [],
         perf: p.ok ? p.data : null,
+        orders: o.ok ? (o.data.orders || []) : [],
       };
     }
 
@@ -498,6 +505,51 @@
                     <td>${fmtNum(p.market_value)}</td>
                     <td>${p.marked_at ? `${esc(p.mark_source)}<br>行情 ${esc(p.quote_time && p.quote_time !== "--" ? p.quote_time : "时间未知")}<br>抓取 ${esc(new Date(p.marked_at).toLocaleString())}` : '<span class="pill muted">按成本</span>'}</td>
                   </tr>`).join("")}
+              </tbody>
+            </table>`}
+        </div>
+        <div class="card" style="margin-top:14px">
+          <h2>模拟下单</h2>
+          <p class="empty-hint" style="margin:0 0 10px">当前价格留空 = 按后端最新行情市价单；A 股必须整手（100 的倍数）。</p>
+          <div class="toolbar">
+            <input id="orderCode" placeholder="sz000001" style="width:120px" />
+            <select id="orderSide" style="width:84px">
+              <option value="buy">买入</option>
+              <option value="sell">卖出</option>
+            </select>
+            <input id="orderQty" type="number" min="100" step="100" placeholder="数量" style="width:100px" />
+            <input id="orderPrice" type="number" step="0.01" placeholder="价格（可选）" style="width:120px" />
+            <input id="orderSignal" placeholder="signal_id（可选）" style="width:200px" />
+            <button id="orderGo">提交</button>
+            <span id="orderStatus" class="meta"></span>
+          </div>
+        </div>
+        <div class="card" style="margin-top:14px">
+          <div class="card-head">
+            <h2>最近订单 <span class="h2-sub">${(d.orders || []).length} 笔</span></h2>
+          </div>
+          ${(d.orders || []).length === 0
+            ? emptyBlock("暂无订单", "下方表单可下一笔模拟单（立即按当前行情撮合，T+1 锁定持仓）。")
+            : `<table>
+              <thead><tr><th>代码</th><th>方向</th><th>数量</th><th>价格</th><th>状态</th><th>原因</th><th>信号</th><th>时间</th><th>操作</th></tr></thead>
+              <tbody>
+                ${d.orders.map(o => {
+                  const statusClass = o.status === "filled" ? "ok" : o.status === "rejected" ? "bad" : "muted";
+                  const statusText = { filled:"已成交", rejected:"已拒绝", pending:"挂单中", partial:"部分成交", cancelled:"已撤" }[o.status] || o.status;
+                  return `<tr>
+                    <td>${esc(o.code)}<br><span class="meta">${esc(o.name || "—")}</span></td>
+                    <td><span class="pill ${o.side === "buy" ? "ok" : "bad"}">${o.side === "buy" ? "买" : "卖"}</span></td>
+                    <td>${o.qty}</td>
+                    <td>${fmtNum(o.price)}</td>
+                    <td><span class="pill ${statusClass}">${esc(statusText)}</span></td>
+                    <td><span class="meta">${esc(o.reason || "—")}</span></td>
+                    <td>${o.signal_id ? `<span class="meta" title="${esc(o.signal_id)}">${esc(o.signal_id.slice(0, 8))}…</span>` : '<span class="meta">—</span>'}</td>
+                    <td><span class="meta">${esc(fmtTs(o.created_at))}</span></td>
+                    <td>${o.status === "pending" || o.status === "partial"
+                      ? `<button class="cancel-btn" data-order-id="${esc(o.id)}">撤单</button>`
+                      : '<span class="meta">—</span>'}</td>
+                  </tr>`;
+                }).join("")}
               </tbody>
             </table>`}
         </div>
@@ -817,6 +869,18 @@
       const markBtn = document.getElementById("refreshValuation");
       if (markBtn) markBtn.onclick = runSnapshot;
 
+      // 模拟下单
+      const orderGoBtn = document.getElementById("orderGo");
+      if (orderGoBtn) orderGoBtn.onclick = runSubmitOrder;
+
+      // 撤单
+      document.querySelectorAll(".cancel-btn").forEach(b => {
+        b.onclick = () => {
+          const id = b.getAttribute("data-order-id");
+          if (id) runCancelOrder(id);
+        };
+      });
+
       // 导出 CSV 按钮：data-export-path 指向后端 /api/v1/export/*.csv
       document.querySelectorAll("[data-export-path]").forEach(b => {
         b.onclick = (e) => {
@@ -872,6 +936,72 @@
         snapshotStatus = String(e);
         out.textContent = snapshotStatus;
         btn.disabled = false;
+      }
+    }
+
+    /* ---------- 模拟下单 ---------- */
+    async function runSubmitOrder() {
+      const btn = $("orderGo");
+      const out = $("orderStatus");
+      const code = $("orderCode").value.trim().toLowerCase();
+      const side = $("orderSide").value;
+      const qty = Number($("orderQty").value);
+      const priceRaw = $("orderPrice").value.trim();
+      const price = priceRaw === "" ? null : Number(priceRaw);
+      const signalId = $("orderSignal").value.trim();
+
+      // 客户端预校验，减少无效请求
+      if (!/^(sh|sz)\d{6}$/.test(code)) {
+        out.textContent = "代码格式错：应为 sh/sz + 6 位数字";
+        return;
+      }
+      if (!Number.isFinite(qty) || qty <= 0 || qty % 100 !== 0) {
+        out.textContent = "数量必须是 100 的整数倍";
+        return;
+      }
+      if (price !== null && (!Number.isFinite(price) || price <= 0)) {
+        out.textContent = "价格必须为正数，留空走市价";
+        return;
+      }
+
+      const body = { code, side, qty };
+      if (price !== null) body.price = price;
+      if (signalId) body.signal_id = signalId;
+
+      btn.disabled = true;
+      out.textContent = "正在下单…";
+      try {
+        const res = await fetch(BASE + "/api/v1/paper/orders", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        const filled = data.fill ? `已成交 ${data.fill.qty} @ ${fmtNum(data.fill.price)}` : "已挂单（pending）";
+        out.textContent = `${code} ${side} ${qty}：${filled}；冻结/可用已更新`;
+        // 清空表单的价格和数量（保留代码方便多次下单）
+        $("orderQty").value = "";
+        $("orderPrice").value = "";
+        $("orderSignal").value = "";
+        await render(); // 刷新账户/挂单视图
+      } catch (e) {
+        out.textContent = String(e);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function runCancelOrder(id) {
+      try {
+        const res = await fetch(BASE + "/api/v1/paper/order/" + encodeURIComponent(id), {
+          method: "DELETE",
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        await render();
+      } catch (e) {
+        alert("撤单失败：" + String(e));
       }
     }
 

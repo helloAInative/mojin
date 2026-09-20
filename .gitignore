@@ -1,0 +1,24 @@
+# Rust
+**/target/
+
+# Data & secrets
+data/
+*.db
+*.db-*
+.env
+.env.local
+
+# Clients
+apps/flutter_shell/.dart_tool/
+apps/flutter_shell/build/
+apps/tauri_shell/node_modules/
+apps/tauri_shell/dist/
+apps/tauri_shell/src-tauri/target/
+
+.DS_Store
+*.log
+.idea/
+.vscode/
+*.sqlite
+*.sqlite-*
+coverage/

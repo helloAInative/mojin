@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>摸金小王子 · 复盘工作台</title>
+  <style>
+    :root {
+      --bg:#0d1117; --card:#161b22; --line:#30363d; --txt:#e6edf3; --muted:#9aa7b4;
+      --ok:#3fb950; --bad:#f85149; --acc:#f0b429; --tip:#58a6ff;
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: "PingFang SC", system-ui, -apple-system, sans-serif;
+           background:var(--bg); color:var(--txt); font-size:13px; }
+    header { padding:12px 18px; border-bottom:1px solid var(--line);
+            display:flex; align-items:center; gap:14px; background:#0a0d12; }
+    header h1 { font-size:15px; margin:0; color:var(--acc); letter-spacing:1px; }
+    header .meta { color:var(--muted); font-size:12px; }
+    header input { padding:6px 10px; border-radius:10px; border:1px solid var(--line);
+                   background:#0d1117; color:var(--txt); width:260px; font-family:ui-monospace,monospace; font-size:12px; }
+    header button { padding:6px 12px; border:0; border-radius:10px; background:var(--acc);
+                    color:#111; font-weight:600; cursor:pointer; font-size:12px; }
+    nav { display:flex; gap:6px; padding:8px 18px; border-bottom:1px solid var(--line); background:#0a0d12; }
+    nav button { padding:6px 12px; border:1px solid var(--line); border-radius:8px;
+                 background:transparent; color:var(--muted); cursor:pointer; font-size:12px; }
+    nav button.active { background:var(--card); color:var(--txt); border-color:var(--acc); }
+    main { padding:16px 18px; }
+    .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:12px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; }
+    .card h2 { margin:0 0 10px; font-size:13px; color:var(--muted); font-weight:600; letter-spacing:.5px; }
+    .row { display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px dashed #1f242c; }
+    .row:last-child { border:0; }
+    .row .k { color:var(--muted); }
+    .row .v { font-family:ui-monospace,monospace; }
+    table { width:100%; border-collapse:collapse; font-size:12px; }
+    th, td { padding:6px 8px; border-bottom:1px solid var(--line); text-align:left;
+            font-family:ui-monospace,monospace; }
+    th { color:var(--muted); font-weight:500; font-size:11px; letter-spacing:.5px; }
+    tr:hover td { background:#1a1f26; }
+    .pill { display:inline-block; padding:2px 6px; border-radius:6px; font-size:11px; }
+    .pill.ok { background:rgba(63,185,80,.18); color:var(--ok); }
+    .pill.bad { background:rgba(248,81,73,.18); color:var(--bad); }
+    .pill.tip { background:rgba(88,166,255,.18); color:var(--tip); }
+    .pill.acc { background:rgba(240,180,41,.18); color:var(--acc); }
+    pre { margin:0; padding:8px; background:#0a0d12; border-radius:6px; font-size:11px;
+          max-height:200px; overflow:auto; border:1px solid var(--line); }
+    .empty { color:var(--muted); font-style:italic; padding:8px 0; }
+    .err { color:var(--bad); padding:8px 0; }
+    .log { font-family:ui-monospace,monospace; font-size:11px; padding:6px 10px;
+           border-bottom:1px solid #1f242c; display:flex; gap:10px; }
+    .log .ts { color:var(--muted); white-space:nowrap; }
+    .log .topic { font-weight:600; min-width:64px; }
+    .log .topic.signal { color:var(--acc); }
+    .log .topic.fill   { color:var(--ok); }
+    .log .topic.equity { color:var(--tip); }
+    .log .topic.healthz{ color:#bc8cff; }
+    .log .topic.ai     { color:#ff7b72; }
+    .log .body { color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .stat { display:flex; gap:18px; flex-wrap:wrap; }
+    .stat .item { display:flex; flex-direction:column; }
+    .stat .item .lbl { color:var(--muted); font-size:11px; }
+    .stat .item .val { font-family:ui-monospace,monospace; font-size:18px; font-weight:600; }
+    .pos { color:var(--ok); }
+    .neg { color:var(--bad); }
+    .foot { color:var(--muted); font-size:11px; padding:14px 18px;
+            border-top:1px solid var(--line); text-align:center; margin-top:24px; }
+    .toolbar { display:flex; gap:6px; margin-bottom:8px; }
+    .toolbar input { background:#0d1117; border:1px solid var(--line); color:var(--txt);
+                       padding:6px 10px; border-radius:8px; font-size:12px; width:120px;
+                       font-family:ui-monospace,monospace; }
+    .toolbar button { padding:6px 10px; border:0; border-radius:8px; background:var(--tip);
+                      color:#111; font-weight:600; font-size:12px; cursor:pointer; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>摸金小王子</h1>
+    <span class="meta">复盘工作台</span>
+    <input id="base" value="http://127.0.0.1:8787" />
+    <button id="btnConnect">连接</button>
+    <span class="meta"><span id="dot" class="dot"></span><span id="status">离线</span></span>
+  </header>
+
+  <nav id="nav">
+    <button data-tab="dashboard" class="active">总览</button>
+    <button data-tab="account">账户/持仓</button>
+    <button data-tab="signals">信号</button>
+    <button data-tab="performance">后验</button>
+    <button data-tab="ai">AI 仲裁</button>
+    <button data-tab="wslog">WS 日志</button>
+  </nav>
+
+  <main id="main"></main>
+
+  <div class="foot">家庭自用 · 纸上统计 · 不构成投资建议</div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const TABS = ["dashboard", "account", "signals", "performance", "ai", "wslog"];
+    let BASE = "http://127.0.0.1:8787";
+    let ws = null;
+    let wsLog = [];
+    const MAX_WS = 100;
+    let lastHealthz = null;
+    let lastEquity = null;
+    let snapshotStatus = "";
+
+    /* ---------- HTTP ---------- */
+    async function api(path) {
+      const res = await fetch(BASE + path, { headers: { "Accept": "application/json" } });
+      if (!res.ok) throw new Error(path + " → " + res.status);
+      return res.json();
+    }
+
+    /* ---------- WS ---------- */
+    function connectWs() {
+      try {
+        if (ws) ws.close();
+        const u = BASE.replace(/^http/, "ws") + "/ws";
+        ws = new WebSocket(u);
+        $("status").textContent = "连接中…";
+        $("dot").className = "dot";
+        ws.onopen = () => {
+          $("status").textContent = "WS 已连接";
+          $("dot").className = "dot ok";
+          ws.send(JSON.stringify({
+            action: "subscribe",
+            topics: ["signal", "fill", "equity", "healthz", "ai"]
+          }));
+        };
+        ws.onclose = () => { $("status").textContent = "WS 断开"; $("dot").className = "dot bad"; };
+        ws.onerror = () => { $("status").textContent = "WS 错误"; $("dot").className = "dot bad"; };
+        ws.onmessage = (e) => {
+          try {
+            const ev = JSON.parse(e.data);
+            wsLog.unshift({ ts: ev.ts || new Date().toISOString(), topic: ev.topic, body: JSON.stringify(ev.payload).slice(0, 240) });
+            if (wsLog.length > MAX_WS) wsLog = wsLog.slice(0, MAX_WS);
+            if (ev.topic === "healthz") lastHealthz = ev.payload;
+            if (ev.topic === "equity") lastEquity = ev.payload;
+            // 当前 tab 是 wslog 或 dashboard 时刷新
+            if (currentTab === "wslog" || currentTab === "dashboard") render();
+          } catch (err) { /* ignore */ }
+        };
+      } catch (e) {
+        $("status").textContent = "WS 失败: " + e;
+        $("dot").className = "dot bad";
+      }
+    }
+
+    /* ---------- 视图渲染 ---------- */
+    let currentTab = "dashboard";
+    let renderVersion = 0;
+    async function loadAll() {
+      try {
+        const [healthz, account, signals, perf] = await Promise.all([
+          api("/healthz"), api("/api/v1/paper/account"),
+          api("/api/v1/signals"), api("/api/v1/performance?days=5&limit=200"),
+        ]);
+        return { healthz, account, signals: signals?.signals || [], perf };
+      } catch (e) {
+        return { error: String(e) };
+      }
+    }
+
+    function fmtPct(x) {
+      if (x === null || x === undefined) return "—";
+      return (x >= 0 ? "+" : "") + (x * 100).toFixed(2) + "%";
+    }
+    function fmtNum(x) { return x === null || x === undefined ? "—" : Number(x).toFixed(2); }
+    function esc(x) { return String(x ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
+    function fmtTs(t) {
+      if (!t) return "";
+      try { return new Date(t).toLocaleTimeString(); } catch { return t; }
+    }
+
+    function pillFor(level) {
+      const m = { risk: "bad", confirm: "tip", strong: "ok", tip: "acc" };
+      const cls = m[level] || "acc";
+      return `<span class="pill ${cls}">${esc(level)}</span>`;
+    }
+
+    function renderDashboard(d) {
+      if (d.error) return `<div class="err">${esc(d.error)}</div>`;
+      const h = d.healthz;
+      const a = d.account;
+      const p = d.perf?.stats;
+      return `
+        <div class="grid">
+          <div class="card">
+            <h2>健康</h2>
+            <div class="stat">
+              <div class="item"><span class="lbl">服务</span><span class="val">${esc(h.service)}</span></div>
+              <div class="item"><span class="lbl">schema</span><span class="val">${esc(h.version)}</span></div>
+              <div class="item"><span class="lbl">表</span><span class="val">${h.tables}</span></div>
+              <div class="item"><span class="lbl">信号</span><span class="val">${h.signals}</span></div>
+              <div class="item"><span class="lbl">已后验</span><span class="val">${h.signals_labeled}</span></div>
+            </div>
+          </div>
+          <div class="card">
+            <h2>账户</h2>
+            <div class="row"><span class="k">现金</span><span class="v">${fmtNum(a.cash)}</span></div>
+            <div class="row"><span class="k">冻结</span><span class="v">${fmtNum(a.frozen)}</span></div>
+            <div class="row"><span class="k">权益</span><span class="v">${fmtNum(a.equity)}</span></div>
+            <div class="row"><span class="k">持仓</span><span class="v">${(a.positions||[]).length} 个</span></div>
+            <div class="row"><span class="k">按成本估算</span><span class="v">${a.unpriced_positions || 0} 个</span></div>
+            ${lastEquity ? `<div class="row"><span class="k">WS 推送</span><span class="v">equity=${fmtNum(lastEquity.equity)}</span></div>` : ""}
+          </div>
+          <div class="card">
+            <h2>后验（5 日）</h2>
+            ${p ? `
+              <div class="row"><span class="k">样本</span><span class="v">${p.samples}</span></div>
+              <div class="row"><span class="k">胜率</span><span class="v">${p.hit_rate === null ? "—" : (p.hit_rate*100).toFixed(1)+"%"}</span></div>
+              <div class="row"><span class="k">平均</span><span class="v pos">${fmtPct(p.avg_return)}</span></div>
+              <div class="row"><span class="k">最好</span><span class="v pos">${fmtPct(p.best)}</span></div>
+              <div class="row"><span class="k">最差</span><span class="v neg">${fmtPct(p.worst)}</span></div>
+            ` : `<div class="empty">无样本</div>`}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderAccount(d) {
+      if (d.error) return `<div class="err">${esc(d.error)}</div>`;
+      const a = d.account;
+      const pos = a.positions || [];
+      return `
+        <div class="card" style="margin-bottom:12px">
+          <h2>账户</h2>
+          <div class="stat">
+            <div class="item"><span class="lbl">现金</span><span class="val">${fmtNum(a.cash)}</span></div>
+            <div class="item"><span class="lbl">冻结</span><span class="val">${fmtNum(a.frozen)}</span></div>
+            <div class="item"><span class="lbl">市值</span><span class="val">${fmtNum(a.market_value)}</span></div>
+            <div class="item"><span class="lbl">权益</span><span class="val">${fmtNum(a.equity)}</span></div>
+          </div>
+          <div class="toolbar" style="margin-top:12px">
+            <button id="refreshValuation">刷新估值并记录快照</button>
+            <span id="snapshotStatus" class="meta">${esc(snapshotStatus || `${a.unpriced_positions || 0} 个持仓尚无行情标记`)}</span>
+          </div>
+        </div>
+        <div class="card">
+          <h2>持仓</h2>
+          ${pos.length === 0 ? `<div class="empty">暂无持仓</div>` : `
+            <table>
+              <thead><tr><th>代码</th><th>名称</th><th>数量</th><th>可用</th><th>成本</th><th>均价</th><th>行情价</th><th>估值</th><th>来源 / 行情时间 / 抓取</th></tr></thead>
+              <tbody>
+                ${pos.map(p => `
+                  <tr>
+                    <td>${esc(p.code)}</td>
+                    <td>${esc(p.name)}</td>
+                    <td>${p.qty}</td>
+                    <td>${p.available}</td>
+                    <td>${fmtNum(p.cost)}</td>
+                    <td>${fmtNum(p.avg_cost)}</td>
+                    <td>${fmtNum(p.market_price)}</td>
+                    <td>${fmtNum(p.market_value)}</td>
+                    <td>${p.marked_at ? `${esc(p.mark_source)}<br>行情 ${esc(p.quote_time && p.quote_time !== "--" ? p.quote_time : "时间未知")}<br>抓取 ${esc(new Date(p.marked_at).toLocaleString())}` : "按成本"}</td>
+                  </tr>`).join("")}
+              </tbody>
+            </table>`}
+        </div>
+      `;
+    }
+
+    function renderSignals(d) {
+      if (d.error) return `<div class="err">${esc(d.error)}</div>`;
+      const sigs = d.signals;
+      return `
+        <div class="card">
+          <h2>最近信号</h2>
+          ${sigs.length === 0 ? `<div class="empty">暂无</div>` : `
+            <table>
+              <thead><tr><th>时间</th><th>代码</th><th>名称</th><th>等级</th><th>置信</th><th>价格</th><th>标题</th></tr></thead>
+              <tbody>
+                ${sigs.slice(0, 50).map(s => `
+                  <tr>
+                    <td>${esc(fmtTs(s.fired_at))}</td>
+                    <td>${esc(s.code)}</td>
+                    <td>${esc(s.name)}</td>
+                    <td>${pillFor(s.level)}</td>
+                    <td>${(s.confidence*100).toFixed(0)}%</td>
+                    <td>${fmtNum(s.price)}</td>
+                    <td>${esc(s.title)}</td>
+                  </tr>`).join("")}
+              </tbody>
+            </table>`}
+        </div>
+      `;
+    }
+
+    async function renderPerformance() {
+      try {
+        const r = await api("/api/v1/performance?days=5&limit=200");
+        const ws = r.windows || [];
+        return `
+          <div class="card">
+            <h2>多窗口后验（confirm/strong）</h2>
+            <table>
+              <thead><tr><th>窗口</th><th>样本</th><th>胜率</th><th>平均</th><th>最好</th><th>最差</th></tr></thead>
+              <tbody>
+                ${ws.map(w => `
+                  <tr>
+                    <td>${w.window} 日</td>
+                    <td>${w.samples}</td>
+                    <td>${w.hit_rate === null ? "—" : (w.hit_rate*100).toFixed(1)+"%"}</td>
+                    <td class="${w.avg_return >= 0 ? "pos" : "neg"}">${fmtPct(w.avg_return)}</td>
+                    <td class="pos">${fmtPct(w.best)}</td>
+                    <td class="neg">${fmtPct(w.worst)}</td>
+                  </tr>`).join("")}
+              </tbody>
+            </table>
+          </div>`;
+      } catch (e) { return `<div class="err">${esc(e)}</div>`; }
+    }
+
+    async function renderAi() {
+      try {
+        const [usage, stats] = await Promise.all([
+          api("/api/v1/ai/usage?limit=20"),
+          api("/api/v1/ws/stats"),
+        ]);
+        const wsClient = stats.clients;
+        const topics = (stats.topics || []).join(", ");
+        const rows = usage.rows || [];
+        return `
+          <div class="card" style="margin-bottom:12px">
+            <h2>WS 客户端</h2>
+            <div class="row"><span class="k">在线</span><span class="v">${wsClient}</span></div>
+            <div class="row"><span class="k">订阅</span><span class="v">${esc(topics || "—")}</span></div>
+          </div>
+          <div class="card">
+            <h2>AI 用量</h2>
+            ${rows.length === 0 ? `<div class="empty">暂无调用（mock 默认 token=0、cost=0）</div>` : `
+              <table>
+                <thead><tr><th>时间</th><th>模型</th><th>任务</th><th>tok in</th><th>tok out</th><th>ms</th><th>cost</th></tr></thead>
+                <tbody>
+                  ${rows.map(r => `
+                    <tr>
+                      <td>${esc(fmtTs(r.created_at))}</td>
+                      <td>${esc(r.model)}</td>
+                      <td>${esc(r.task)}</td>
+                      <td>${r.tokens_in}</td>
+                      <td>${r.tokens_out}</td>
+                      <td>${r.latency_ms}</td>
+                      <td>${fmtNum(r.cost_estimate)}</td>
+                    </tr>`).join("")}
+                </tbody>
+              </table>`}
+            <div class="toolbar" style="margin-top:12px">
+              <input id="aiCode" placeholder="sz300623" value="sz300623" />
+              <input id="aiSignalId" placeholder="signal_id（可选）" />
+              <button id="aiGo">跑一次 analyze</button>
+            </div>
+            <pre id="aiResult">点击按钮 → 调用 /api/v1/ai/analyze/{code}</pre>
+          </div>`;
+      } catch (e) { return `<div class="err">${esc(e)}</div>`; }
+    }
+
+    function renderWsLog() {
+      if (wsLog.length === 0) return `<div class="card"><h2>WS 日志</h2><div class="empty">连接后等待推送…</div></div>`;
+      return `
+        <div class="card">
+          <h2>WS 日志（最近 ${wsLog.length} 条，新→旧）</h2>
+          ${wsLog.map(l => `
+            <div class="log">
+              <span class="ts">${esc(fmtTs(l.ts))}</span>
+              <span class="topic ${esc(l.topic)}">${esc(l.topic)}</span>
+              <span class="body" title="${esc(l.body)}">${esc(l.body)}</span>
+            </div>`).join("")}
+        </div>`;
+    }
+
+    async function render() {
+      const version = ++renderVersion;
+      const tabName = currentTab;
+      $("main").innerHTML = `<div class="empty">加载中…</div>`;
+      let html = "";
+      if (tabName === "dashboard" || tabName === "account" || tabName === "signals") {
+        const d = await loadAll();
+        if (tabName === "dashboard") html = renderDashboard(d);
+        else if (tabName === "account") html = renderAccount(d);
+        else if (tabName === "signals") html = renderSignals(d);
+      } else if (tabName === "performance") {
+        html = await renderPerformance();
+      } else if (tabName === "ai") {
+        html = await renderAi();
+      } else if (tabName === "wslog") {
+        html = renderWsLog();
+      }
+      if (version !== renderVersion) return;
+      $("main").innerHTML = html;
+      // AI 按钮绑定
+      const goBtn = document.getElementById("aiGo");
+      if (goBtn) goBtn.onclick = runAnalyze;
+      const markBtn = document.getElementById("refreshValuation");
+      if (markBtn) markBtn.onclick = runSnapshot;
+    }
+
+    async function runSnapshot() {
+      const btn = $("refreshValuation");
+      const out = $("snapshotStatus");
+      btn.disabled = true;
+      out.textContent = "正在获取全部持仓行情…";
+      try {
+        const res = await fetch(BASE + "/api/v1/paper/snapshot", { method: "POST" });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        snapshotStatus = `已记录快照 · 权益 ${fmtNum(data.equity)}`;
+        await render();
+      } catch (e) {
+        snapshotStatus = String(e);
+        out.textContent = snapshotStatus;
+        btn.disabled = false;
+      }
+    }
+
+    async function runAnalyze() {
+      const code = $("aiCode").value.trim();
+      const signalId = $("aiSignalId").value.trim();
+      const out = $("aiResult");
+      out.textContent = "调用中…";
+      try {
+        const res = await fetch(BASE + "/api/v1/ai/analyze/" + encodeURIComponent(code), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(signalId ? { signal_id: signalId } : {}),
+        });
+        const j = await res.json();
+        if (!res.ok || !j.ok) throw new Error(j.error || `HTTP ${res.status}`);
+        out.textContent = JSON.stringify(j, null, 2);
+      } catch (e) {
+        out.textContent = String(e);
+      }
+    }
+
+    /* ---------- 启动 ---------- */
+    document.querySelectorAll("#nav button").forEach(b => {
+      b.onclick = () => {
+        document.querySelectorAll("#nav button").forEach(x => x.classList.remove("active"));
+        b.classList.add("active");
+        currentTab = b.dataset.tab;
+        render();
+      };
+    });
+    $("btnConnect").onclick = () => { BASE = $("base").value.replace(/\/$/, ""); connectWs(); render(); };
+    $("base").addEventListener("change", () => { BASE = $("base").value.replace(/\/$/, ""); connectWs(); render(); });
+    BASE = $("base").value.replace(/\/$/, "");
+    connectWs();
+    render();
+    // 周期性刷新 dashboard tab
+    setInterval(() => {
+      if (currentTab === "dashboard" || currentTab === "performance" || currentTab === "ai") render();
+    }, 15000);
+  </script>
+</body>
+</html>

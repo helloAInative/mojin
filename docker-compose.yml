@@ -1,0 +1,59 @@
+# 摸金小王子 · 家庭 NAS 部署（绿联 DXP4800 / N100 / aarch64）
+#
+# 用法：
+#   cp .env.example .env        # 编辑 .env，填 MJ_AI_API_KEY
+#   docker compose build        # 一次；N100 上约 12-18 min）
+#   docker compose up -d        # 启动；自动健康检查
+#   curl -s http://127.0.0.1:8787/healthz
+#
+# 升级：
+#   git pull && docker compose build && docker compose up -d
+#
+# 卸载：
+#   docker compose down         # 保留 ./data
+#   rm -rf data                 # 清掉 SQLite
+
+services:
+  mj-server:
+    build:
+      context: ./mj-server
+      dockerfile: Dockerfile
+      # NAS 上的 cargo 缓存复用：把宿主 target 挂进 builder。
+      # 首次仍会从 crates.io 拉依赖；后续增量构建只编译变更。
+      args:
+        - CARGO_TARGET_DIR=/cache/target
+    image: mojin/mj-server:0.1.0
+    container_name: mj-server
+    restart: unless-stopped
+    # 仅 loopback 暴露——远程访问走 Tailscale Funnel / serve / host 网络。
+    # 如需暴露给家庭内网，改为 "${MJ_PORT:-8787}:8787"
+    ports:
+      - "127.0.0.1:${MJ_PORT:-8787}:8787"
+    environment:
+      MJ_HOST: "0.0.0.0"
+      MJ_PORT: "8787"
+      MJ_DB_PATH: /data/mojin.db
+      RUST_LOG: ${RUST_LOG:-mj_server=info,tower_http=info}
+      # 仅存 NAS .env；客户端不接触
+      MJ_AI_API_KEY: ${MJ_AI_API_KEY:-}
+      MJ_AI_BASE_URL: ${MJ_AI_BASE_URL:-}
+    volumes:
+      # 持久化 SQLite
+      - ./data:/data
+      # 复用本地 target/ （N100 上重复 cargo build 太慢）
+      - ./target:/cache/target
+    cpus: "1.5"
+    mem_limit: 512m
+    # NAS 上 aarch64 兼容性：--platform 在 x86 host 上构建时指定。
+    # 默认跟随宿主机。
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8787/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # 单独网络：仅本机 loopback / Tailscale 可达。Tauri / Flutter 走这里。
+networks:
+  default:
+    name: mojin-net

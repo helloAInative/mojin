@@ -24,8 +24,22 @@
 | POST | `/api/v1/signal/{id}/backfill` | 回填单个信号后验 |
 | POST | `/api/v1/signals/backfill` | 批量回填后验 |
 | GET | `/api/v1/performance?days=5&limit=200` | 后验聚合 |
+| POST | `/api/v1/backtest` | 技术信号历史逐日回测 |
 
 股票代码使用带市场前缀的格式，例如 `sh600000`、`sz000001`、`bj899050`。
+
+回测示例：
+
+```json
+{
+  "code": "sz000001",
+  "holding_days": 5,
+  "limit": 500,
+  "round_trip_cost_bps": 10
+}
+```
+
+`holding_days` 范围 1–20，`limit` 范围 60–1000，往返成本范围 0–200 bp。引擎只使用信号日当时可见的历史数据，`confirm`/`strong` 信号在下一交易日开盘价进入，固定持有后按收盘价退出，交易互不重叠。结果没有模拟停牌、无法成交和市场容量。
 
 ## 模拟盘
 

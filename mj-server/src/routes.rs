@@ -7,6 +7,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use crate::ai;
+use crate::backtest;
 use crate::db::AppState;
 use crate::error::AppError;
 use crate::export;
@@ -46,6 +47,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/v1/signal/{id}/backfill", post(signal_backfill))
         .route("/api/v1/signals/backfill", post(signals_backfill))
         .route("/api/v1/performance", get(performance))
+        .route("/api/v1/backtest", post(run_backtest))
         // 自选 / 指数池
         .route("/api/v1/watchlist", get(watchlist_list).post(watchlist_add))
         .route(
@@ -159,7 +161,7 @@ async fn healthz(State(state): State<Arc<AppState>>) -> Result<Json<Healthz>, Ap
 struct Meta {
     ok: bool,
     api: &'static str,
-    endpoints: [&'static str; 31],
+    endpoints: [&'static str; 32],
 }
 
 async fn meta() -> Json<Meta> {
@@ -186,6 +188,7 @@ async fn meta() -> Json<Meta> {
             "/api/v1/signal/{id}/backfill",
             "/api/v1/signals/backfill",
             "/api/v1/performance",
+            "/api/v1/backtest",
             "/api/v1/watchlist",
             "/api/v1/watchlist/item",
             "/api/v1/watchlist/groups",
@@ -259,7 +262,10 @@ async fn daily(
     Query(q): Query<DailyQuery>,
 ) -> Result<Json<DailyResp>, AppError> {
     let limit = q.limit.unwrap_or(120);
-    let bars = market::fetch_daily_voted(&code, limit).await;
+    let mut bars = market::fetch_daily_voted(&code, limit).await;
+    if bars.len() > limit {
+        bars = bars.split_off(bars.len() - limit);
+    }
     let count = bars.len();
     Ok(Json(DailyResp {
         ok: true,
@@ -656,6 +662,57 @@ async fn performance(
         windows,
         disclaimer: "仅供家庭自用 · 后验统计 · 不构成投资建议",
     }))
+}
+
+#[derive(Deserialize, Default)]
+struct BacktestBody {
+    code: String,
+    #[serde(default)]
+    holding_days: Option<usize>,
+    #[serde(default)]
+    limit: Option<usize>,
+    #[serde(default)]
+    round_trip_cost_bps: Option<f64>,
+}
+
+async fn run_backtest(
+    Json(body): Json<BacktestBody>,
+) -> Result<Json<backtest::BacktestResult>, AppError> {
+    let code = body.code.trim().to_lowercase();
+    let digits = code
+        .strip_prefix("sh")
+        .or_else(|| code.strip_prefix("sz"))
+        .or_else(|| code.strip_prefix("bj"));
+    let valid_code = digits
+        .is_some_and(|value| value.len() == 6 && value.bytes().all(|byte| byte.is_ascii_digit()));
+    if !valid_code {
+        return Err(AppError::Msg("code must be sh/sz/bj plus 6 digits".into()));
+    }
+    let holding_days = body.holding_days.unwrap_or(5).clamp(1, 20);
+    let limit = body.limit.unwrap_or(500).clamp(60, 1_000);
+    let round_trip_cost_bps = body.round_trip_cost_bps.unwrap_or(10.0);
+    if !round_trip_cost_bps.is_finite() || !(0.0..=200.0).contains(&round_trip_cost_bps) {
+        return Err(AppError::Msg(
+            "round_trip_cost_bps must be between 0 and 200".into(),
+        ));
+    }
+    let mut bars = market::fetch_daily_voted(&code, limit).await;
+    if bars.len() > limit {
+        bars = bars.split_off(bars.len() - limit);
+    }
+    if bars.len() < 30 + holding_days {
+        return Err(AppError::Msg(format!(
+            "not enough daily bars for backtest: got {}, need at least {}",
+            bars.len(),
+            30 + holding_days
+        )));
+    }
+    Ok(Json(backtest::run(
+        &code,
+        &bars,
+        holding_days,
+        round_trip_cost_bps,
+    )))
 }
 
 // ──────────────── 模拟撮合 ────────────────

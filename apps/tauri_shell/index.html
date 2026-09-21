@@ -157,6 +157,8 @@
     .perf-bar .fill.pos { background: linear-gradient(90deg, #2ea043, #3fb950); }
     .perf-bar .fill.neg { background: linear-gradient(90deg, #da3633, #f85149); }
     .perf-bar .fill.zero { background: var(--muted-2); }
+    .equity-chart { width:100%; min-width:520px; height:190px; display:block; background:#0d1219;
+                    border:1px solid var(--line); border-radius:8px; }
     /* signal detail panel */
     .detail-panel { padding:16px; background:#0e141d; border-radius:8px; margin:6px 12px 12px; }
     .detail-panel h3 { margin:0 0 8px; font-size:13px; color:var(--muted); font-weight:600; }
@@ -199,6 +201,7 @@
     <button data-tab="fills">成交</button>
     <button data-tab="signals">信号</button>
     <button data-tab="performance">后验</button>
+    <button data-tab="backtest">历史回测</button>
     <button data-tab="ai">AI 仲裁</button>
     <button data-tab="indices">指数池</button>
     <button data-tab="brief">每日复盘</button>
@@ -223,6 +226,9 @@
     let lastEquity = null;
     let snapshotStatus = "";
     let researchResult = null;
+    let backtestResult = null;
+    let backtestStatus = "";
+    let backtestConfig = { code: "sz000001", holding_days: 5, limit: 500, round_trip_cost_bps: 10 };
     let orderDraft = null;
     let universeGroup = "全部";
     let universeStatus = "";
@@ -1088,6 +1094,78 @@
       `;
     }
 
+    /* 历史回测 */
+    function equityChart(trades) {
+      if (!trades || trades.length === 0) return emptyBlock("暂无交易样本", "当前区间没有 confirm / strong 信号，可换股票或扩大历史范围。");
+      const values = [1, ...trades.map(trade => trade.equity_after)];
+      const width = 720, height = 180, pad = 24;
+      const min = Math.min(...values), max = Math.max(...values);
+      const range = Math.max(0.001, max - min);
+      const points = values.map((value, index) => {
+        const x = pad + index / Math.max(1, values.length - 1) * (width - pad * 2);
+        const y = height - pad - (value - min) / range * (height - pad * 2);
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      }).join(" ");
+      const zeroY = height - pad - (1 - min) / range * (height - pad * 2);
+      const positive = values[values.length - 1] >= 1;
+      return `<svg class="equity-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="策略权益曲线">
+        <line x1="${pad}" y1="${zeroY.toFixed(1)}" x2="${width-pad}" y2="${zeroY.toFixed(1)}" stroke="#283342" stroke-dasharray="4 4" />
+        <polyline fill="none" stroke="${positive ? '#3fb950' : '#f85149'}" stroke-width="3" points="${points}" />
+        <text x="${pad}" y="16" fill="#8fa1b3" font-size="11">${(max * 100).toFixed(1)}</text>
+        <text x="${pad}" y="${height-6}" fill="#8fa1b3" font-size="11">${(min * 100).toFixed(1)}</text>
+        <text x="${width-pad}" y="16" text-anchor="end" fill="${positive ? '#3fb950' : '#f85149'}" font-size="12">${fmtPct(values[values.length - 1] - 1)}</text>
+      </svg>`;
+    }
+
+    function renderBacktest() {
+      const data = backtestResult;
+      const trades = data?.trades || [];
+      return `
+        <p class="page-intro">用历史日线逐日重放当前技术信号。只采用确认/强信号，交易不重叠，并扣除往返成本。</p>
+        <div class="card" style="margin-bottom:14px">
+          <h2>回测参数</h2>
+          <div class="toolbar">
+            <input id="backtestCode" value="${esc(backtestConfig.code)}" placeholder="sz000001" style="width:130px" />
+            <select id="backtestHolding" style="width:110px">
+              ${[1,3,5,10,20].map(day => `<option value="${day}" ${backtestConfig.holding_days === day ? "selected" : ""}>持有 ${day} 日</option>`).join("")}
+            </select>
+            <select id="backtestLimit" style="width:130px">
+              ${[120,250,500,750,1000].map(limit => `<option value="${limit}" ${backtestConfig.limit === limit ? "selected" : ""}>最近 ${limit} 日</option>`).join("")}
+            </select>
+            <input id="backtestCost" type="number" min="0" max="200" step="1" value="${backtestConfig.round_trip_cost_bps}" style="width:130px" title="往返成本，1 bp = 0.01%" />
+            <button id="backtestGo">运行回测</button>
+            <span id="backtestStatus" class="meta">${esc(backtestStatus)}</span>
+          </div>
+          <div class="meta">成本单位 bp：10 bp = 0.10%。信号在当日收盘后确认，以下一交易日开盘价作为研究入场价。</div>
+        </div>
+        ${!data ? emptyBlock("尚未运行回测", "输入股票代码并点击“运行回测”。") : `
+          <div class="card" style="margin-bottom:14px">
+            <div class="card-head"><h2>${esc(data.code)} · ${esc(data.period_start)} 至 ${esc(data.period_end)}</h2><span class="meta">${data.bars} 根日线 · 扫描 ${data.scanned_days} 日</span></div>
+            <div class="stat">
+              <div class="item"><span class="lbl">交易</span><span class="val">${data.trade_count}</span><span class="sub">胜 ${data.wins}</span></div>
+              <div class="item"><span class="lbl">命中率</span><span class="val">${data.hit_rate == null ? "—" : (data.hit_rate*100).toFixed(1)+"%"}</span></div>
+              <div class="item"><span class="lbl">策略复合</span><span class="val ${data.total_return >= 0 ? "pos" : "neg"}">${fmtPct(data.total_return)}</span></div>
+              <div class="item"><span class="lbl">单笔平均</span><span class="val ${data.avg_return >= 0 ? "pos" : "neg"}">${fmtPct(data.avg_return)}</span></div>
+              <div class="item"><span class="lbl">最大回撤</span><span class="val neg">${fmtPct(data.max_drawdown)}</span></div>
+              <div class="item"><span class="lbl">同期标的</span><span class="val ${data.benchmark_return >= 0 ? "pos" : "neg"}">${fmtPct(data.benchmark_return)}</span><span class="sub">差额 ${fmtPct(data.excess_return)}</span></div>
+            </div>
+          </div>
+          <div class="card" style="margin-bottom:14px"><h2>策略权益曲线</h2>${equityChart(trades)}</div>
+          <div class="card">
+            <div class="card-head"><h2>逐笔样本 <span class="h2-sub">${trades.length} 笔</span></h2><span class="meta">已扣 ${data.round_trip_cost_bps} bp</span></div>
+            ${trades.length === 0 ? emptyBlock("暂无交易", "这段历史没有达到确认等级的信号。") : `<table>
+              <thead><tr><th>入场</th><th>退出</th><th>等级</th><th>置信</th><th>入场价</th><th>退出价</th><th>净收益</th><th>触发因子</th></tr></thead>
+              <tbody>${trades.slice().reverse().map(trade => `<tr>
+                <td>${esc(trade.entry_date)}</td><td>${esc(trade.exit_date)}</td>
+                <td>${pillFor(trade.level)}</td><td>${(trade.confidence*100).toFixed(0)}%</td>
+                <td>${fmtNum(trade.entry_price)}</td><td>${fmtNum(trade.exit_price)}</td>
+                <td class="${trade.net_return >= 0 ? "pos" : "neg"}">${fmtPct(trade.net_return)}</td>
+                <td><span class="meta">${esc((trade.factors || []).join(" · "))}</span></td>
+              </tr>`).join("")}</tbody></table>`}
+          </div>
+        `}`;
+    }
+
     /* AI */
     async function renderAi() {
       const [usage, stats, config] = await Promise.all([
@@ -1257,6 +1335,8 @@
         html = await renderRisk();
       } else if (tabName === "performance") {
         html = await renderPerformance();
+      } else if (tabName === "backtest") {
+        html = renderBacktest();
       } else if (tabName === "ai") {
         html = await renderAi();
       } else if (tabName === "indices") {
@@ -1297,6 +1377,8 @@
       if (markBtn) markBtn.onclick = runSnapshot;
       const riskRefresh = document.getElementById("riskRefresh");
       if (riskRefresh) riskRefresh.onclick = render;
+      const backtestGo = document.getElementById("backtestGo");
+      if (backtestGo) backtestGo.onclick = runBacktest;
 
       const watchAddBtn = document.getElementById("watchAdd");
       if (watchAddBtn) watchAddBtn.onclick = runWatchAdd;
@@ -1646,6 +1728,38 @@
       } catch (e) {
         alert("撤单失败：" + String(e));
       }
+    }
+
+    async function runBacktest() {
+      const code = $("backtestCode").value.trim().toLowerCase();
+      const holdingDays = Number($("backtestHolding").value);
+      const limit = Number($("backtestLimit").value);
+      const costBps = Number($("backtestCost").value);
+      const status = $("backtestStatus");
+      if (!/^(sh|sz|bj)\d{6}$/.test(code)) {
+        status.textContent = "代码格式应为 sh/sz/bj + 6 位数字";
+        return;
+      }
+      if (!Number.isFinite(costBps) || costBps < 0 || costBps > 200) {
+        status.textContent = "往返成本应在 0–200 bp";
+        return;
+      }
+      backtestConfig = {
+        code,
+        holding_days: holdingDays,
+        limit,
+        round_trip_cost_bps: costBps,
+      };
+      status.textContent = "正在抓取日线并逐日重放…";
+      $("backtestGo").disabled = true;
+      try {
+        backtestResult = await apiRequest("/api/v1/backtest", "POST", backtestConfig);
+        backtestStatus = `完成：${backtestResult.trade_count} 笔交易`;
+      } catch (e) {
+        backtestResult = null;
+        backtestStatus = "回测失败：" + String(e);
+      }
+      await render();
     }
 
     async function runAnalyze() {

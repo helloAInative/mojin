@@ -2,6 +2,7 @@
 //! 家庭自用 NAS 后端骨架（PRD V3.2）
 
 mod ai;
+mod backtest;
 mod db;
 mod error;
 mod export;

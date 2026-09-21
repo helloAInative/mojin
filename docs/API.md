@@ -38,6 +38,7 @@
 | GET | `/api/v1/paper/fills` | 成交列表 |
 | GET | `/api/v1/paper/pnl` | 每日权益快照 |
 | POST | `/api/v1/paper/snapshot` | 刷新全部持仓估值并记录快照 |
+| GET | `/api/v1/paper/risk` | 用最新行情检查持仓止损、止盈与风险计划状态 |
 
 下单示例：
 
@@ -48,9 +49,18 @@
   "qty": 100,
   "price": 11.8,
   "signal_id": null,
-  "strategy_id": null
+  "strategy_id": null,
+  "risk_plan": {
+    "stop_price": 11.2,
+    "take_profit_price": 13.0,
+    "risk_budget_pct": 0.01,
+    "suggested_position_pct": 0.12,
+    "basis": "研究候选风险计划"
+  }
 }
 ```
+
+`risk_plan` 仅适用于买单，且应满足 `stop_price < order price < take_profit_price`。成交后同一账户、同一股票的新计划会覆盖旧计划。风险接口会返回 `normal`、`near_stop`、`stop_triggered`、`target_reached` 或 `unplanned`；这些状态只用于提醒，不会自动下单。
 
 ## 自选与指数池
 

@@ -208,6 +208,24 @@ pub struct OrderRequest {
     pub strategy_id: Option<String>,
     #[serde(default)]
     pub signal_id: Option<String>,
+    #[serde(default)]
+    pub risk_plan: Option<OrderRiskPlanRequest>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct OrderRiskPlanRequest {
+    pub stop_price: f64,
+    pub take_profit_price: f64,
+    #[serde(default = "default_risk_budget_pct")]
+    pub risk_budget_pct: f64,
+    #[serde(default)]
+    pub suggested_position_pct: f64,
+    #[serde(default)]
+    pub basis: String,
+}
+
+fn default_risk_budget_pct() -> f64 {
+    0.01
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -217,6 +235,79 @@ pub struct OrderResp {
     pub fill: Option<FillView>,
     pub account: AccountView,
     pub disclaimer: &'static str,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RiskItem {
+    pub code: String,
+    pub name: String,
+    pub qty: f64,
+    pub available: f64,
+    pub avg_cost: f64,
+    pub market_price: Option<f64>,
+    pub pnl_pct: Option<f64>,
+    pub stop_price: Option<f64>,
+    pub take_profit_price: Option<f64>,
+    pub distance_to_stop_pct: Option<f64>,
+    pub distance_to_target_pct: Option<f64>,
+    pub risk_budget_pct: Option<f64>,
+    pub suggested_position_pct: Option<f64>,
+    pub basis: Option<String>,
+    pub source_order_id: Option<String>,
+    pub status: &'static str,
+    pub quote_source: Option<String>,
+    pub quote_time: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RiskOverview {
+    pub items: Vec<RiskItem>,
+    pub total: usize,
+    pub triggered: usize,
+    pub near_stop: usize,
+    pub unplanned: usize,
+}
+
+fn validate_risk_plan(side: &str, plan: &OrderRiskPlanRequest) -> Result<(), AppError> {
+    if side != "buy" {
+        return Err(AppError::Msg(
+            "risk_plan is only supported for buy orders".into(),
+        ));
+    }
+    if !plan.stop_price.is_finite()
+        || !plan.take_profit_price.is_finite()
+        || plan.stop_price <= 0.0
+        || plan.take_profit_price <= plan.stop_price
+    {
+        return Err(AppError::Msg(
+            "risk plan prices must be finite and take_profit_price > stop_price > 0".into(),
+        ));
+    }
+    if !plan.risk_budget_pct.is_finite()
+        || !(0.0..=1.0).contains(&plan.risk_budget_pct)
+        || !plan.suggested_position_pct.is_finite()
+        || !(0.0..=1.0).contains(&plan.suggested_position_pct)
+    {
+        return Err(AppError::Msg(
+            "risk plan percentages must be finite values between 0 and 1".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn risk_status(price: Option<f64>, stop: Option<f64>, target: Option<f64>) -> &'static str {
+    let (Some(price), Some(stop), Some(target)) = (price, stop, target) else {
+        return "unplanned";
+    };
+    if price <= stop {
+        "stop_triggered"
+    } else if price >= target {
+        "target_reached"
+    } else if price <= stop * 1.02 {
+        "near_stop"
+    } else {
+        "normal"
+    }
 }
 
 /// 提交订单 → 立即锁资金/持仓 → 当日立即撮合。
@@ -229,6 +320,9 @@ pub async fn submit(state: &AppState, req: OrderRequest) -> Result<OrderResp, Ap
         return Err(AppError::Msg(
             "qty must be a positive whole share count; buys must be multiples of 100".into(),
         ));
+    }
+    if let Some(plan) = &req.risk_plan {
+        validate_risk_plan(&req.side, plan)?;
     }
     let account_id = req
         .account_id
@@ -266,6 +360,13 @@ pub async fn submit(state: &AppState, req: OrderRequest) -> Result<OrderResp, Ap
     }
     if !price.is_finite() || price <= 0.0 {
         return Err(AppError::Msg("price must be > 0".into()));
+    }
+    if let Some(plan) = &req.risk_plan {
+        if plan.stop_price >= price || plan.take_profit_price <= price {
+            return Err(AppError::Msg(
+                "risk plan must satisfy stop_price < order price < take_profit_price".into(),
+            ));
+        }
     }
     // 3) 涨跌停校验
     let (lo, hi) = price_limit(&req.code, prev_close);
@@ -340,6 +441,30 @@ pub async fn submit(state: &AppState, req: OrderRequest) -> Result<OrderResp, Ap
                 req.strategy_id, req.signal_id
             ],
         )?;
+        if can {
+            if let Some(plan) = &req.risk_plan {
+                tx.execute(
+                    "INSERT INTO paper_risk_plan(
+                       account_id, code, source_order_id, entry_price, stop_price,
+                       take_profit_price, risk_budget_pct, suggested_position_pct, basis)
+                     VALUES(?,?,?,?,?,?,?,?,?)
+                     ON CONFLICT(account_id, code) DO UPDATE SET
+                       source_order_id=excluded.source_order_id,
+                       entry_price=excluded.entry_price,
+                       stop_price=excluded.stop_price,
+                       take_profit_price=excluded.take_profit_price,
+                       risk_budget_pct=excluded.risk_budget_pct,
+                       suggested_position_pct=excluded.suggested_position_pct,
+                       basis=excluded.basis,
+                       updated_at=datetime('now')",
+                    params![
+                        account_id, req.code, id, price, plan.stop_price,
+                        plan.take_profit_price, plan.risk_budget_pct,
+                        plan.suggested_position_pct, plan.basis
+                    ],
+                )?;
+            }
+        }
         sync_account(&tx, &account_id)?;
         tx.commit()?;
         Ok((id, can))
@@ -374,6 +499,133 @@ pub async fn submit(state: &AppState, req: OrderRequest) -> Result<OrderResp, Ap
         fill: Some(fill),
         account,
         disclaimer: "模拟撮合 · 纸上成交 · 不构成投资建议",
+    })
+}
+
+pub async fn risk_overview(state: &AppState, account_id: &str) -> Result<RiskOverview, AppError> {
+    type RiskRow = (
+        String,
+        String,
+        f64,
+        f64,
+        f64,
+        Option<f64>,
+        Option<String>,
+        Option<String>,
+        Option<f64>,
+        Option<f64>,
+        Option<f64>,
+        Option<f64>,
+        Option<String>,
+        Option<String>,
+    );
+    let rows: Vec<RiskRow> = state.with_conn(|c| {
+        let mut stmt = c.prepare(
+            "SELECT p.code, p.name, p.qty, p.available, p.cost,
+                    m.price, m.source, m.quote_time,
+                    r.stop_price, r.take_profit_price, r.risk_budget_pct,
+                    r.suggested_position_pct, r.basis, r.source_order_id
+               FROM paper_position p
+               LEFT JOIN paper_mark m ON m.account_id=p.account_id AND m.code=p.code
+               LEFT JOIN paper_risk_plan r ON r.account_id=p.account_id AND r.code=p.code
+              WHERE p.account_id=? AND p.qty > 0 ORDER BY p.code",
+        )?;
+        let rows = stmt
+            .query_map(params![account_id], |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                    r.get(6)?,
+                    r.get(7)?,
+                    r.get(8)?,
+                    r.get(9)?,
+                    r.get(10)?,
+                    r.get(11)?,
+                    r.get(12)?,
+                    r.get(13)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    })?;
+
+    let mut items = Vec::with_capacity(rows.len());
+    for (
+        code,
+        name,
+        qty,
+        available,
+        cost,
+        marked_price,
+        marked_source,
+        marked_time,
+        stop_price,
+        take_profit_price,
+        risk_budget_pct,
+        suggested_position_pct,
+        basis,
+        source_order_id,
+    ) in rows
+    {
+        let quote = pick_primary(&code).await;
+        let market_price = quote.as_ref().map(|q| q.price).or(marked_price);
+        let quote_source = quote.as_ref().map(|q| q.source.clone()).or(marked_source);
+        let quote_time = quote.as_ref().map(|q| q.time_text.clone()).or(marked_time);
+        let avg_cost = if qty > 0.0 { cost / qty } else { 0.0 };
+        let pnl_pct = market_price
+            .filter(|_| avg_cost > 0.0)
+            .map(|p| p / avg_cost - 1.0);
+        let distance_to_stop_pct = match (market_price, stop_price) {
+            (Some(price), Some(stop)) if price > 0.0 => Some((price - stop) / price),
+            _ => None,
+        };
+        let distance_to_target_pct = match (market_price, take_profit_price) {
+            (Some(price), Some(target)) if price > 0.0 => Some((target - price) / price),
+            _ => None,
+        };
+        items.push(RiskItem {
+            code,
+            name,
+            qty,
+            available,
+            avg_cost,
+            market_price,
+            pnl_pct,
+            stop_price,
+            take_profit_price,
+            distance_to_stop_pct,
+            distance_to_target_pct,
+            risk_budget_pct,
+            suggested_position_pct,
+            basis,
+            source_order_id,
+            status: risk_status(market_price, stop_price, take_profit_price),
+            quote_source,
+            quote_time,
+        });
+    }
+    let triggered = items
+        .iter()
+        .filter(|item| matches!(item.status, "stop_triggered" | "target_reached"))
+        .count();
+    let near_stop = items
+        .iter()
+        .filter(|item| item.status == "near_stop")
+        .count();
+    let unplanned = items
+        .iter()
+        .filter(|item| item.status == "unplanned")
+        .count();
+    Ok(RiskOverview {
+        total: items.len(),
+        items,
+        triggered,
+        near_stop,
+        unplanned,
     })
 }
 
@@ -481,6 +733,10 @@ pub fn fill_order(
                 )?;
                 tx.execute(
                     "DELETE FROM paper_mark WHERE account_id = ? AND code = ?",
+                    params![account_id, code],
+                )?;
+                tx.execute(
+                    "DELETE FROM paper_risk_plan WHERE account_id = ? AND code = ?",
                     params![account_id, code],
                 )?;
             }
@@ -846,6 +1102,30 @@ mod tests {
     }
 
     #[test]
+    fn risk_plan_validation_and_status_are_deterministic() {
+        let valid = OrderRiskPlanRequest {
+            stop_price: 9.0,
+            take_profit_price: 12.0,
+            risk_budget_pct: 0.01,
+            suggested_position_pct: 0.15,
+            basis: String::new(),
+        };
+        assert!(validate_risk_plan("buy", &valid).is_ok());
+        assert!(validate_risk_plan("sell", &valid).is_err());
+        assert_eq!(
+            risk_status(Some(8.9), Some(9.0), Some(12.0)),
+            "stop_triggered"
+        );
+        assert_eq!(risk_status(Some(9.1), Some(9.0), Some(12.0)), "near_stop");
+        assert_eq!(
+            risk_status(Some(12.0), Some(9.0), Some(12.0)),
+            "target_reached"
+        );
+        assert_eq!(risk_status(Some(10.0), Some(9.0), Some(12.0)), "normal");
+        assert_eq!(risk_status(Some(10.0), None, None), "unplanned");
+    }
+
+    #[test]
     fn buy_fill_reconciles_cash_equity_and_t_plus_one() {
         let state = state();
         pending_buy(&state, "buy-1", 100.0, 10.0);
@@ -889,6 +1169,12 @@ mod tests {
                     "UPDATE paper_fill SET filled_at = '2000-01-01T00:00:00+00:00'",
                     [],
                 )?;
+                c.execute(
+                    "INSERT INTO paper_risk_plan(
+                       account_id, code, source_order_id, entry_price, stop_price, take_profit_price)
+                     VALUES('default', 'sz000001', 'buy-1', 10, 9, 12)",
+                    [],
+                )?;
                 sync_account(c, "default")?;
                 c.execute(
                     "INSERT INTO paper_order(id, account_id, code, side, qty, price, status)
@@ -927,6 +1213,12 @@ mod tests {
         near(account.equity, account.cash);
         near(account.frozen, 0.0);
         assert!(account.positions.is_empty());
+        let risk_plans: i64 = state
+            .with_conn(|c| {
+                Ok(c.query_row("SELECT COUNT(*) FROM paper_risk_plan", [], |r| r.get(0))?)
+            })
+            .unwrap();
+        assert_eq!(risk_plans, 0);
     }
 
     #[test]

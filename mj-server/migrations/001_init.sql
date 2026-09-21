@@ -1,4 +1,4 @@
--- 摸金小王子 mojin.db · 31 张核心表
+-- 摸金小王子 mojin.db · 33 张核心表
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 
@@ -182,6 +182,23 @@ CREATE TABLE IF NOT EXISTS paper_fill (
   FOREIGN KEY(order_id) REFERENCES paper_order(id)
 );
 
+CREATE TABLE IF NOT EXISTS paper_risk_plan (
+  account_id TEXT NOT NULL,
+  code TEXT NOT NULL,
+  source_order_id TEXT NOT NULL,
+  entry_price REAL NOT NULL CHECK (entry_price > 0),
+  stop_price REAL NOT NULL CHECK (stop_price > 0),
+  take_profit_price REAL NOT NULL CHECK (take_profit_price > stop_price),
+  risk_budget_pct REAL NOT NULL DEFAULT 0.01,
+  suggested_position_pct REAL NOT NULL DEFAULT 0,
+  basis TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY(account_id, code),
+  FOREIGN KEY(account_id) REFERENCES paper_account(id),
+  FOREIGN KEY(source_order_id) REFERENCES paper_order(id)
+);
+
 CREATE TABLE IF NOT EXISTS paper_daily_pnl (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   account_id TEXT NOT NULL,
@@ -363,8 +380,8 @@ CREATE TABLE IF NOT EXISTS watchlist (
 );
 
 INSERT OR IGNORE INTO schema_meta(key, value) VALUES ('version', '2');
-UPDATE schema_meta SET value = '3' WHERE key = 'version';
-INSERT OR IGNORE INTO schema_meta(key, value) VALUES ('name', 'mojin-v3');
+UPDATE schema_meta SET value = '4' WHERE key = 'version';
+INSERT OR IGNORE INTO schema_meta(key, value) VALUES ('name', 'mojin-v4');
 INSERT OR IGNORE INTO schema_meta(key, value) VALUES ('updated_at', datetime('now'));
 
 INSERT OR IGNORE INTO paper_account(id, name, cash, frozen, equity)
@@ -383,5 +400,5 @@ INSERT OR IGNORE INTO index_universe(code, name, enabled) VALUES
   ('bj899050','北证50',1);
 
 INSERT INTO audit_log(actor, action, target, payload_json)
-SELECT 'system','init','mojin-v3','{"tables":32,"version":"3"}'
-WHERE NOT EXISTS (SELECT 1 FROM audit_log WHERE actor = 'system' AND action = 'init' AND target = 'mojin-v3');
+SELECT 'system','init','mojin-v4','{"tables":33,"version":"4"}'
+WHERE NOT EXISTS (SELECT 1 FROM audit_log WHERE actor = 'system' AND action = 'init' AND target = 'mojin-v4');

@@ -115,11 +115,11 @@ mod tests {
             .unwrap();
         state.migrate().unwrap();
         state.migrate().unwrap();
-        assert_eq!(state.schema_version().unwrap(), "3");
+        assert_eq!(state.schema_version().unwrap(), "4");
         let init_count: i64 = state
             .with_conn(|c| {
                 Ok(c.query_row(
-                    "SELECT COUNT(*) FROM audit_log WHERE action = 'init' AND target = 'mojin-v3'",
+                    "SELECT COUNT(*) FROM audit_log WHERE action = 'init' AND target = 'mojin-v4'",
                     [],
                     |r| r.get(0),
                 )?)

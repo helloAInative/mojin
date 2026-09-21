@@ -35,6 +35,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/v1/paper/fills", get(paper_fills))
         .route("/api/v1/paper/pnl", get(paper_pnl))
         .route("/api/v1/paper/snapshot", post(paper_snapshot))
+        .route("/api/v1/paper/risk", get(paper_risk))
         .route("/api/v1/quote/{code}", get(quote))
         .route("/api/v1/daily/{code}", get(daily))
         .route("/api/v1/signal/evaluate/{code}", post(evaluate_signal))
@@ -158,7 +159,7 @@ async fn healthz(State(state): State<Arc<AppState>>) -> Result<Json<Healthz>, Ap
 struct Meta {
     ok: bool,
     api: &'static str,
-    endpoints: [&'static str; 30],
+    endpoints: [&'static str; 31],
 }
 
 async fn meta() -> Json<Meta> {
@@ -175,6 +176,7 @@ async fn meta() -> Json<Meta> {
             "/api/v1/paper/fills",
             "/api/v1/paper/pnl",
             "/api/v1/paper/snapshot",
+            "/api/v1/paper/risk",
             "/api/v1/quote/{code}",
             "/api/v1/daily/{code}",
             "/api/v1/signal/evaluate/{code}",
@@ -831,6 +833,23 @@ async fn paper_snapshot(
         ok: true,
         account,
         disclaimer: "持仓行情估值与当日快照已写入 · 不构成投资建议",
+    }))
+}
+
+#[derive(Serialize)]
+struct PaperRiskResp {
+    ok: bool,
+    #[serde(flatten)]
+    overview: paper::RiskOverview,
+    disclaimer: &'static str,
+}
+
+async fn paper_risk(State(state): State<Arc<AppState>>) -> Result<Json<PaperRiskResp>, AppError> {
+    let overview = paper::risk_overview(&state, "default").await?;
+    Ok(Json(PaperRiskResp {
+        ok: true,
+        overview,
+        disclaimer: "止损止盈仅作模拟盘提醒，不会自动交易 · 不构成投资建议",
     }))
 }
 

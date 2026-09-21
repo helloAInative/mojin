@@ -222,6 +222,7 @@
     let lastEquity = null;
     let snapshotStatus = "";
     let researchResult = null;
+    let orderDraft = null;
     let universeGroup = "全部";
     let universeStatus = "";
     // 指数池 tab 本地状态
@@ -587,13 +588,13 @@
           <h2>模拟下单</h2>
           <p class="empty-hint" style="margin:0 0 10px">当前价格留空 = 按后端最新行情市价单；A 股必须整手（100 的倍数）。</p>
           <div class="toolbar">
-            <input id="orderCode" placeholder="sz000001" style="width:120px" />
+            <input id="orderCode" placeholder="sz000001" value="${esc(orderDraft?.code || "")}" style="width:120px" />
             <select id="orderSide" style="width:84px">
-              <option value="buy">买入</option>
-              <option value="sell">卖出</option>
+              <option value="buy" ${orderDraft?.side !== "sell" ? "selected" : ""}>买入</option>
+              <option value="sell" ${orderDraft?.side === "sell" ? "selected" : ""}>卖出</option>
             </select>
-            <input id="orderQty" type="number" min="100" step="100" placeholder="数量" style="width:100px" />
-            <input id="orderPrice" type="number" step="0.01" placeholder="价格（可选）" style="width:120px" />
+            <input id="orderQty" type="number" min="100" step="100" placeholder="数量" value="${orderDraft?.qty || ""}" style="width:100px" />
+            <input id="orderPrice" type="number" step="0.01" placeholder="价格（可选）" value="${orderDraft?.price || ""}" style="width:120px" />
             <input id="orderSignal" placeholder="signal_id（可选）" style="width:200px" />
             <button id="orderGo">提交</button>
             <span id="orderStatus" class="meta"></span>
@@ -1133,6 +1134,7 @@
           ${candidates.length === 0 ? emptyBlock("没有可用候选", "检查代码格式、后端网络和行情源。") : `
             <table><thead><tr><th>排名</th><th>代码</th><th>名称</th><th>价格</th><th>结论</th><th>得分</th><th>置信</th><th>五角色快览</th></tr></thead>
             <tbody>${candidates.map((c, index) => {
+              const plan = c.risk_plan || {};
               const roleCells = (c.roles || []).map(r => {
                 const cls = r.score > 0.05 ? "pos" : r.score < -0.05 ? "neg" : "";
                 const tag = {technician:"技",fundamental:"基",risk:"险",position:"仓",psychology:"心"}[r.role] || r.role;
@@ -1140,11 +1142,23 @@
               }).join("");
               return `<tr>
               <td>${index + 1}</td><td>${esc(c.code)}</td><td>${esc(c.name)}</td><td>${fmtNum(c.price)}</td>
-              <td>${pillFor(verdictLevel(c.verdict))} ${esc(c.verdict)}</td>
+              <td>${pillFor(verdictLevel(c.verdict))} ${esc(c.verdict)}
+                ${plan.suggested_max_shares > 0 ? `<br><button class="export-btn" data-paper-code="${esc(c.code)}" data-paper-price="${c.price}" data-paper-qty="${plan.suggested_max_shares}">带入模拟单</button>` : ""}</td>
               <td class="${c.final_score >= 0 ? "pos" : "neg"}">${fmtNum(c.final_score)}</td>
               <td>${(c.final_confidence * 100).toFixed(0)}%</td>
               <td><div class="factor-list" style="margin:0">${roleCells}</div></td>
-            </tr><tr><td colspan="8"><details><summary>仲裁理由</summary><pre>${esc(c.rationale)}</pre></details></td></tr>`;
+            </tr><tr><td colspan="8"><details><summary>仲裁理由与风险计划</summary>
+              <div class="factor-list" style="margin:10px 0">
+                <span class="factor">20 日年化波动 <span class="w">${fmtPct(plan.annualized_volatility)}</span></span>
+                <span class="factor">ATR <span class="w">${fmtPct(plan.atr_pct_14d)}</span></span>
+                <span class="factor">止损参考 <span class="w neg">${fmtNum(plan.stop_price)} / ${fmtPct(-plan.stop_loss_pct)}</span></span>
+                <span class="factor">止盈参考 <span class="w pos">${fmtNum(plan.take_profit_price)} / ${fmtPct(plan.take_profit_pct)}</span></span>
+                <span class="factor">仓位上限 <span class="w">${fmtPct(plan.max_position_pct)}</span></span>
+                <span class="factor">建议仓位 <span class="w">${fmtPct(plan.suggested_position_pct)}</span></span>
+                <span class="factor">建议最多 <span class="w">${plan.suggested_max_shares ?? 0} 股</span></span>
+              </div>
+              <div class="meta" style="margin-bottom:8px">${esc(plan.basis || "暂无风险计划")}</div>
+              <pre>${esc(c.rationale)}</pre></details></td></tr>`;
             }).join("")}</tbody></table>`}
           ${(data.failures || []).length ? `<div class="err">失败：${esc(data.failures.map(x => `${x.code}: ${x.error}`).join("；"))}</div>` : ""}
         </div>
@@ -1247,6 +1261,13 @@
       });
       document.querySelectorAll("[data-watch-code]").forEach(b => {
         b.onclick = () => runWatchDelete(b.getAttribute("data-watch-group"), b.getAttribute("data-watch-code"));
+      });
+      document.querySelectorAll("[data-paper-code]").forEach(b => {
+        b.onclick = () => stageResearchOrder(
+          b.getAttribute("data-paper-code"),
+          Number(b.getAttribute("data-paper-price")),
+          Number(b.getAttribute("data-paper-qty")),
+        );
       });
 
       // 模拟下单
@@ -1430,6 +1451,15 @@
       }
     }
 
+    async function stageResearchOrder(code, price, qty) {
+      orderDraft = { code, price: Number(price).toFixed(2), qty, side: "buy" };
+      currentTab = "account";
+      document.querySelectorAll("#nav button").forEach(b => b.classList.toggle("active", b.dataset.tab === currentTab));
+      await render();
+      const status = $("orderStatus");
+      if (status) status.textContent = "已按研究风险计划带入，请核对后提交模拟单";
+    }
+
     /* ---------- 动作 ---------- */
     async function runSnapshot() {
       const btn = $("refreshValuation");
@@ -1494,6 +1524,7 @@
         $("orderQty").value = "";
         $("orderPrice").value = "";
         $("orderSignal").value = "";
+        orderDraft = null;
         await render(); // 刷新账户/挂单视图
       } catch (e) {
         out.textContent = String(e);
@@ -1593,9 +1624,9 @@
     $("clientKind").textContent = isDesktop ? `${platform} 客户端` : "Web 工作台";
     connectWs();
     render();
-    // 周期性刷新 dashboard tab
+    // 只自动刷新只读总览/后验；表单页面自动重绘会打断用户输入。
     setInterval(() => {
-      if (currentTab === "dashboard" || currentTab === "performance" || currentTab === "ai") render();
+      if (currentTab === "dashboard" || currentTab === "performance") render();
     }, 15000);
   </script>
 </body>

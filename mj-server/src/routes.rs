@@ -1090,6 +1090,7 @@ async fn current_ai_context(state: &AppState, code: &str) -> Result<ai::AiContex
                 .optional()?;
             Ok((row.and_then(|item| item.0), row.and_then(|item| item.1)))
         })?;
+    let (daily_volatility_20d, atr_pct_14d) = market_risk_metrics(&bars);
     Ok(ai::AiContext {
         signal_id: None,
         code: code.to_string(),
@@ -1100,9 +1101,60 @@ async fn current_ai_context(state: &AppState, code: &str) -> Result<ai::AiContex
         factors,
         ret_5d,
         ret_20d,
+        daily_volatility_20d,
+        atr_pct_14d,
         historical_evidence: ai::historical_evidence(state, code)?,
         research: research::ResearchContext::default(),
     })
+}
+
+fn market_risk_metrics(bars: &[market::DayBar]) -> (Option<f64>, Option<f64>) {
+    let returns: Vec<f64> = bars
+        .windows(2)
+        .rev()
+        .take(20)
+        .filter_map(|pair| {
+            let previous = pair[0].close;
+            let current = pair[1].close;
+            (previous > 0.0 && current > 0.0).then_some(current / previous - 1.0)
+        })
+        .collect();
+    let daily_volatility = if returns.len() >= 5 {
+        let mean = returns.iter().sum::<f64>() / returns.len() as f64;
+        let variance = returns
+            .iter()
+            .map(|value| (value - mean).powi(2))
+            .sum::<f64>()
+            / (returns.len() - 1) as f64;
+        Some(variance.sqrt())
+    } else {
+        None
+    };
+
+    let true_ranges: Vec<f64> = bars
+        .windows(2)
+        .rev()
+        .take(14)
+        .filter_map(|pair| {
+            let previous_close = pair[0].close;
+            let current = &pair[1];
+            if previous_close <= 0.0 || current.close <= 0.0 {
+                return None;
+            }
+            Some(
+                (current.high - current.low)
+                    .max((current.high - previous_close).abs())
+                    .max((current.low - previous_close).abs()),
+            )
+        })
+        .collect();
+    let last_close = bars.last().map(|bar| bar.close).unwrap_or(0.0);
+    let atr_pct = if true_ranges.len() >= 5 && last_close > 0.0 {
+        Some(true_ranges.iter().sum::<f64>() / true_ranges.len() as f64 / last_close)
+    } else {
+        None
+    };
+    (daily_volatility, atr_pct)
 }
 
 #[derive(Serialize)]
@@ -1262,4 +1314,32 @@ async fn ws_stats(State(state): State<Arc<AppState>>) -> Json<WsStatsResp> {
         topics,
         disclaimer: "WebSocket hub 当前状态 · 仅供家庭自用",
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::market_risk_metrics;
+    use crate::market::DayBar;
+
+    #[test]
+    fn market_risk_metrics_use_recent_returns_and_true_range() {
+        let bars: Vec<DayBar> = (0..30)
+            .map(|day| {
+                let close = 10.0 + day as f64 * 0.1;
+                DayBar {
+                    code: "sz000001".into(),
+                    date: format!("2026-08-{:02}", day + 1),
+                    open: close - 0.05,
+                    high: close + 0.2,
+                    low: close - 0.2,
+                    close,
+                    volume: 1_000.0,
+                    amount: 10_000.0,
+                }
+            })
+            .collect();
+        let (volatility, atr_pct) = market_risk_metrics(&bars);
+        assert!(volatility.is_some_and(|value| value > 0.0));
+        assert!(atr_pct.is_some_and(|value| value > 0.02));
+    }
 }

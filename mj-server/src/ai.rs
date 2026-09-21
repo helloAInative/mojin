@@ -52,8 +52,25 @@ pub struct ArbitrateResp {
     pub final_score: f64,
     pub final_confidence: f64,
     pub verdict: String, // buy / hold / sell / watch
+    pub risk_plan: RiskPlan,
     pub rationale: String,
     pub disclaimer: &'static str,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RiskPlan {
+    pub daily_volatility_20d: Option<f64>,
+    pub annualized_volatility: Option<f64>,
+    pub atr_pct_14d: Option<f64>,
+    pub stop_loss_pct: f64,
+    pub stop_price: f64,
+    pub take_profit_pct: f64,
+    pub take_profit_price: f64,
+    pub risk_budget_pct: f64,
+    pub max_position_pct: f64,
+    pub suggested_position_pct: f64,
+    pub suggested_max_shares: i64,
+    pub basis: &'static str,
 }
 
 /// Model provider 抽象：每个 role 一个 provider。生产环境可换成真实 HTTP/SDK。
@@ -87,6 +104,8 @@ pub struct AiContext {
     pub factors: Vec<(String, f64, String)>, // (key, value, detail)
     pub ret_5d: Option<f64>,
     pub ret_20d: Option<f64>,
+    pub daily_volatility_20d: Option<f64>,
+    pub atr_pct_14d: Option<f64>,
     pub historical_evidence: HistoricalEvidence,
     pub research: ResearchContext,
 }
@@ -180,6 +199,8 @@ pub fn context_for_signal(
             factors,
             ret_5d: row.5,
             ret_20d: row.6,
+            daily_volatility_20d: None,
+            atr_pct_14d: None,
             historical_evidence,
             research: ResearchContext::default(),
         })
@@ -799,6 +820,7 @@ pub async fn analyze(
         record_usage(state, o, "analyze", ctx.signal_level.as_str());
     }
     let (final_score, final_conf, verdict) = arbitrate(&roles, &weights);
+    let risk_plan = build_risk_plan(state, &ctx, &verdict, final_conf);
     let rationale = roles
         .iter()
         .map(|o| {
@@ -819,9 +841,57 @@ pub async fn analyze(
         final_score,
         final_confidence: final_conf,
         verdict,
+        risk_plan,
         rationale,
         disclaimer: "AI 投研为家庭自用辅助结论，不构成投资建议",
     })
+}
+
+fn build_risk_plan(state: &AppState, ctx: &AiContext, verdict: &str, confidence: f64) -> RiskPlan {
+    let (cash, equity) = state
+        .with_conn(|conn| {
+            conn.query_row(
+                "SELECT cash, equity FROM paper_account WHERE id = 'default'",
+                [],
+                |row| Ok((row.get::<_, f64>(0)?, row.get::<_, f64>(1)?)),
+            )
+            .map_err(AppError::Db)
+        })
+        .unwrap_or((0.0, 0.0));
+    let atr_stop = ctx.atr_pct_14d.unwrap_or(0.04) * 2.0;
+    let vol_stop = ctx.daily_volatility_20d.unwrap_or(0.02) * 2.5;
+    let stop_loss_pct = atr_stop.max(vol_stop).clamp(0.04, 0.12);
+    let take_profit_pct = (stop_loss_pct * 2.0).min(0.24);
+    let risk_budget_pct = 0.01;
+    let max_position_pct = (risk_budget_pct / stop_loss_pct).min(0.20);
+    let confidence_scale = 0.5 + confidence.clamp(0.0, 1.0) * 0.5;
+    let suggested_position_pct = match verdict {
+        "buy" => max_position_pct * confidence_scale,
+        "watch" => max_position_pct.min(0.05) * confidence_scale,
+        _ => 0.0,
+    };
+    let investable = (equity * suggested_position_pct).min(cash.max(0.0));
+    let suggested_max_shares = if ctx.price > 0.0 {
+        ((investable / ctx.price / 100.0).floor() * 100.0) as i64
+    } else {
+        0
+    };
+    RiskPlan {
+        daily_volatility_20d: ctx.daily_volatility_20d,
+        annualized_volatility: ctx
+            .daily_volatility_20d
+            .map(|value| value * 252.0_f64.sqrt()),
+        atr_pct_14d: ctx.atr_pct_14d,
+        stop_loss_pct,
+        stop_price: ctx.price * (1.0 - stop_loss_pct),
+        take_profit_pct,
+        take_profit_price: ctx.price * (1.0 + take_profit_pct),
+        risk_budget_pct,
+        max_position_pct,
+        suggested_position_pct,
+        suggested_max_shares,
+        basis: "按模拟账户权益的 1% 风险预算、20 日波动率与 14 日 ATR 估算；价格仅为研究参考",
+    }
 }
 
 /// 读最近 N 条 ai_usage。
@@ -947,12 +1017,16 @@ mod tests {
             factors: vec![("macd_golden".into(), 1.0, "金叉".into())],
             ret_5d: None,
             ret_20d: None,
+            daily_volatility_20d: Some(0.02),
+            atr_pct_14d: Some(0.03),
             historical_evidence: HistoricalEvidence::default(),
             research: ResearchContext::default(),
         };
         let response = analyze(&state, ctx, default_providers()).await.unwrap();
         assert_eq!(response.signal_id.as_deref(), Some("sig-1"));
         assert_eq!(response.roles.len(), 5);
+        assert!(response.risk_plan.stop_loss_pct >= 0.06);
+        assert!(response.risk_plan.max_position_pct <= 0.20);
         assert_eq!(list_usage(&state, 10).unwrap().len(), 5);
     }
 

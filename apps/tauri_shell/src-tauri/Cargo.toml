@@ -1,6 +1,6 @@
 [package]
 name = "mojin-desktop"
-version = "0.2.2"
+version = "0.3.0"
 description = "摸金小王子桌面客户端"
 authors = ["helloAInative"]
 license = "MIT"

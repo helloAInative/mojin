@@ -1,6 +1,6 @@
 {
   "name": "mojin-desktop",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "private": true,
   "description": "摸金小王子 macOS 与 Windows 桌面客户端",
   "license": "MIT",

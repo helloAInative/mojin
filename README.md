@@ -99,6 +99,7 @@ curl http://127.0.0.1:8787/healthz
 | `MJ_PORT` | `8787` | HTTP 与 WebSocket 端口 |
 | `MJ_DB_PATH` | `data/mojin.db` | SQLite 路径 |
 | `RUST_LOG` | `mj_server=info,tower_http=info` | Rust 日志过滤器 |
+| `MJ_ENV_FILE` | 自动发现项目根目录 `.env` | 显式指定服务端环境文件路径 |
 | `MJ_AI_API_KEY` | 空 | OpenAI 兼容接口 Token；只在服务端读取 |
 | `MJ_AI_BASE_URL` | OpenAI | 兼容接口基址，例如阿里百炼 `/compatible-mode/v1` |
 | `MJ_AI_MODEL` | `gpt-5-mini` | 五角色默认模型 |
@@ -116,6 +117,8 @@ cp .env.example .env
 ./scripts/dev-up.sh --rebuild
 curl http://127.0.0.1:8787/api/v1/ai/config
 ```
+
+`mj-server` 会从当前目录和可执行文件位置向上寻找项目根目录，因此通过 macOS LaunchAgent 独立运行时也能加载根目录 `.env`。也可用 `MJ_ENV_FILE=/绝对路径/.env` 显式指定。配置接口只返回加载状态、文件路径和模型名称，不返回 Token。修改文件后需要重启服务。
 
 真实模型会收到候选股票的行情、技术因子、历史后验、新闻标题、美股和板块摘要。不要在自定义新闻或股票备注中放入个人信息或账户凭据。
 

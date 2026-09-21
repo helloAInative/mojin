@@ -98,6 +98,8 @@
 
 请求体可以为空，也可以传 `{"signal_id":"..."}`。绑定历史信号时，路径中的代码必须与信号代码一致。
 
+配置状态还包含 `env_file_loaded`、`env_file_path`、`env_file_error`、`configured_base_url` 和 `configured_model`。这些字段用于诊断独立服务是否读取了正确的 `.env`，不会包含 `MJ_AI_API_KEY` 的值。
+
 智能候选示例：
 
 ```json

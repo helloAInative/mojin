@@ -3,6 +3,7 @@
 
 mod ai;
 mod backtest;
+mod config;
 mod db;
 mod error;
 mod export;
@@ -28,7 +29,7 @@ use crate::db::AppState;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    dotenvy::dotenv().ok();
+    let env_status = config::load_env();
 
     tracing_subscriber::registry()
         .with(
@@ -37,6 +38,13 @@ async fn main() -> anyhow::Result<()> {
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
+
+    tracing::info!(
+        loaded = env_status.env_file_loaded,
+        path = %env_status.env_file_path,
+        error = ?env_status.env_file_error,
+        "environment configuration"
+    );
 
     let db_path = std::env::var("MJ_DB_PATH").unwrap_or_else(|_| "data/mojin.db".into());
     let host = std::env::var("MJ_HOST").unwrap_or_else(|_| "0.0.0.0".into());

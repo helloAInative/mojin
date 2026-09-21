@@ -512,9 +512,14 @@ pub struct AiConfigView {
     pub remote_enabled: bool,
     pub base_url: Option<String>,
     pub default_model: String,
+    pub configured_base_url: String,
+    pub configured_model: String,
     pub timeout_secs: u64,
     pub role_models: Vec<(String, String)>,
     pub token_configured: bool,
+    pub env_file_loaded: bool,
+    pub env_file_path: String,
+    pub env_file_error: Option<String>,
 }
 
 fn remote_config() -> Option<RemoteConfig> {
@@ -550,6 +555,12 @@ fn role_model(role: &str, default_model: &str) -> String {
 
 pub fn config_view() -> AiConfigView {
     let config = remote_config();
+    let env_status = crate::config::env_status();
+    let configured_base_url = std::env::var("MJ_AI_BASE_URL")
+        .unwrap_or_else(|_| "https://api.openai.com/v1".into())
+        .trim_end_matches('/')
+        .to_string();
+    let configured_model = std::env::var("MJ_AI_MODEL").unwrap_or_else(|_| "gpt-5-mini".into());
     let default_model = config
         .as_ref()
         .map(|value| value.default_model.clone())
@@ -575,7 +586,12 @@ pub fn config_view() -> AiConfigView {
             })
             .collect(),
         default_model,
+        configured_base_url,
+        configured_model,
         token_configured: config.is_some(),
+        env_file_loaded: env_status.env_file_loaded,
+        env_file_path: env_status.env_file_path.clone(),
+        env_file_error: env_status.env_file_error.clone(),
     }
 }
 

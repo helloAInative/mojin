@@ -229,6 +229,8 @@
     let backtestResult = null;
     let backtestStatus = "";
     let backtestConfig = { code: "sz000001", holding_days: 5, limit: 500, round_trip_cost_bps: 10 };
+    let aiConfigCopyStatus = "";
+    let aiConfigTemplate = "";
     let orderDraft = null;
     let universeGroup = "全部";
     let universeStatus = "";
@@ -1177,6 +1179,12 @@
       const topics = stats.ok ? (stats.data.topics || []).join(", ") : "—";
       const rows = usage.ok ? (usage.data.rows || []) : [];
       const aiConfig = config.ok ? config.data : null;
+      aiConfigTemplate = aiConfig ? [
+        "MJ_AI_API_KEY=在此填写服务商 Token",
+        `MJ_AI_BASE_URL=${aiConfig.configured_base_url || "https://api.openai.com/v1"}`,
+        `MJ_AI_MODEL=${aiConfig.configured_model || "gpt-5-mini"}`,
+        "MJ_AI_TIMEOUT_SECS=45",
+      ].join("\n") : "";
       return `
         <p class="page-intro">汇总新闻、昨日美股、行业板块、历史后验与技术指标，由五个独立角色分析并加权仲裁。</p>
         <div class="grid">
@@ -1186,7 +1194,8 @@
               <div class="row"><span class="k">模式</span><span class="v">${aiConfig.remote_enabled ? '<span class="pill ok">真实模型</span>' : '<span class="pill acc">本地启发式</span>'}</span></div>
               <div class="row"><span class="k">默认模型</span><span class="v">${esc(aiConfig.default_model)}</span></div>
               <div class="row"><span class="k">Token</span><span class="v">${aiConfig.token_configured ? "服务端已配置" : "未配置"}</span></div>
-              <div class="row"><span class="k">接口</span><span class="v">${esc(aiConfig.base_url || "—")}</span></div>`}
+              <div class="row"><span class="k">接口</span><span class="v">${esc(aiConfig.base_url || aiConfig.configured_base_url || "—")}</span></div>
+              <div class="row"><span class="k">环境文件</span><span class="v">${aiConfig.env_file_loaded ? '<span class="pill ok">已加载</span>' : '<span class="pill acc">未创建</span>'}</span></div>`}
           </div>
           <div class="card">
             <h2>WS 客户端${tip("ws_clients")}</h2>
@@ -1221,6 +1230,14 @@
                   </table>`)}
           </div>
         </div>
+        ${aiConfig ? `<div class="card" style="margin-top:14px">
+          <div class="card-head"><h2>真实 AI 配置</h2><button id="copyAiConfig" class="export-btn">复制配置模板</button></div>
+          <div class="row"><span class="k">配置文件</span><span class="v" style="font-size:11px;word-break:break-all">${esc(aiConfig.env_file_path)}</span></div>
+          ${aiConfig.env_file_error ? `<div class="err" style="margin-top:10px">加载失败：${esc(aiConfig.env_file_error)}</div>` : ""}
+          <pre style="margin-top:10px">${esc(aiConfigTemplate)}</pre>
+          <div class="meta" style="margin-top:10px">将 Token 写入该文件后重启 mj-server。接口只返回配置状态，永远不会返回密钥内容。</div>
+          <div class="meta" style="margin-top:6px">${esc(aiConfigCopyStatus)}</div>
+        </div>` : ""}
         <div class="card" style="margin-top:14px">
           <h2>智能候选池</h2>
           <div class="empty-hint">代码留空时读取自选池；最多分析 12 只，返回综合排名前 5。</div>
@@ -1373,6 +1390,8 @@
       if (goBtn) goBtn.onclick = runAnalyze;
       const researchBtn = document.getElementById("researchGo");
       if (researchBtn) researchBtn.onclick = runResearchSelect;
+      const copyAiConfig = document.getElementById("copyAiConfig");
+      if (copyAiConfig) copyAiConfig.onclick = () => runAiConfigCopy(copyAiConfig);
       const markBtn = document.getElementById("refreshValuation");
       if (markBtn) markBtn.onclick = runSnapshot;
       const riskRefresh = document.getElementById("riskRefresh");
@@ -1758,6 +1777,27 @@
       } catch (e) {
         backtestResult = null;
         backtestStatus = "回测失败：" + String(e);
+      }
+      await render();
+    }
+
+    async function runAiConfigCopy() {
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(aiConfigTemplate);
+        } else {
+          const textarea = document.createElement("textarea");
+          textarea.value = aiConfigTemplate;
+          textarea.style.position = "fixed";
+          textarea.style.left = "-9999px";
+          document.body.appendChild(textarea);
+          textarea.select();
+          document.execCommand("copy");
+          textarea.remove();
+        }
+        aiConfigCopyStatus = "配置模板已复制；粘贴到上方路径并填写真实 Token。";
+      } catch (e) {
+        aiConfigCopyStatus = "复制失败：" + String(e);
       }
       await render();
     }

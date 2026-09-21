@@ -199,6 +199,8 @@
     <button data-tab="signals">信号</button>
     <button data-tab="performance">后验</button>
     <button data-tab="ai">AI 仲裁</button>
+    <button data-tab="indices">指数池</button>
+    <button data-tab="brief">每日复盘</button>
     <button data-tab="wslog">WS 日志</button>
   </nav>
 
@@ -208,7 +210,7 @@
 
   <script>
     const $ = (id) => document.getElementById(id);
-    const TABS = ["dashboard", "universe", "account", "fills", "signals", "performance", "ai", "wslog"];
+    const TABS = ["dashboard", "universe", "account", "fills", "signals", "performance", "ai", "indices", "brief", "wslog"];
     const STORAGE_KEY = "mojin.desktop.baseUrl";
     let BASE = "http://127.0.0.1:8787";
     let ws = null;
@@ -222,6 +224,11 @@
     let researchResult = null;
     let universeGroup = "全部";
     let universeStatus = "";
+    // 指数池 tab 本地状态
+    let indexStatus = "";
+    // 复盘 tab 状态
+    let briefText = "";
+    let briefCopyStatus = "";
     // 信号 tab 本地状态
     let signalFilter = { levels: new Set(["risk","confirm","strong","tip"]), code: "" };
     let expandedSignalId = null;
@@ -624,6 +631,175 @@
       `;
     }
 
+    /* 指数池 */
+    async function renderIndices() {
+      const r = await apiOrError("/api/v1/index-universe");
+      if (!r.ok) return errBlock("/api/v1/index-universe", r.error);
+      const items = r.data.items || [];
+      const enabled = items.filter(x => x.enabled).length;
+      return `
+        <p class="page-intro">维护扫描/分析用的指数池。关闭的指数不会被行情扫描、AI 分析与候选池引用。</p>
+        <div class="card" style="margin-bottom:14px">
+          <h2>添加 / 更新指数</h2>
+          <div class="toolbar">
+            <input id="indexCode" placeholder="sh000300" style="width:140px" />
+            <input id="indexName" placeholder="名称（可选）" style="width:180px" />
+            <button id="indexAdd">添加</button>
+            <span id="indexStatus" class="meta">${esc(indexStatus)}</span>
+          </div>
+          <div class="meta" style="margin-top:8px">示例：sh000001（上证）、sz399006（创业板）、bj899050（北证50）</div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <h2>指数池 <span class="h2-sub">${enabled} 启用 / ${items.length} 总数</span></h2>
+          </div>
+          ${items.length === 0
+            ? emptyBlock("指数池为空", "先添加指数代码，例如 sh000300。")
+            : `<table>
+              <thead><tr><th>代码</th><th>名称</th><th>状态</th><th>操作</th></tr></thead>
+              <tbody>${items.map(it => `
+                <tr>
+                  <td>${esc(it.code)}</td>
+                  <td>${esc(it.name || "—")}</td>
+                  <td>
+                    <span class="pill ${it.enabled ? "ok" : ""}">${it.enabled ? "启用" : "停用"}</span>
+                  </td>
+                  <td>
+                    <button class="export-btn" data-index-toggle="${esc(it.code)}" data-index-enabled="${it.enabled}">
+                      ${it.enabled ? "停用" : "启用"}
+                    </button>
+                    <button class="cancel-btn" data-index-del="${esc(it.code)}">删除</button>
+                  </td>
+                </tr>`).join("")}
+              </tbody>
+            </table>`}
+        </div>
+      `;
+    }
+
+    /* 每日复盘 */
+    async function renderBrief() {
+      // 拉取 4 路数据
+      const [acctR, fillsR, sigsR, perfR] = await Promise.all([
+        apiOrError("/api/v1/paper/account"),
+        apiOrError("/api/v1/paper/fills?limit=50"),
+        apiOrError("/api/v1/signals?limit=100"),
+        apiOrError("/api/v1/performance?days=60"),
+      ]);
+      const md = buildBriefMarkdown({
+        account: acctR.ok ? acctR.data : null,
+        fills: fillsR.ok ? fillsR.data.fills || [] : [],
+        signals: sigsR.ok ? sigsR.data.signals || [] : [],
+        perf: perfR.ok ? perfR.data : null,
+        errs: [acctR, fillsR, sigsR, perfR].filter(r => !r.ok).map(r => r.path + ": " + r.error),
+      });
+      briefText = md;
+      return `
+        <p class="page-intro">聚合账户、成交、信号、后验四路数据生成可复制的复盘摘要。粘贴到笔记 / 微信收藏 / Notion 均可。</p>
+        <div class="card" style="margin-bottom:14px">
+          <div class="toolbar">
+            <button id="briefRegen">重新生成</button>
+            <button id="briefCopy" class="alt">复制到剪贴板</button>
+            <button id="briefDownload">下载 .md 文件</button>
+            <span id="briefStatus" class="meta">${esc(briefCopyStatus)}</span>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Markdown 预览</h2>
+          <pre id="briefPreview" style="white-space:pre-wrap;max-height:60vh;overflow:auto;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;line-height:1.5">${esc(md)}</pre>
+        </div>
+      `;
+    }
+
+    function buildBriefMarkdown({ account, fills, signals, perf, errs }) {
+      const lines = [];
+      const now = new Date();
+      const dStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`;
+      lines.push(`# 每日复盘 · ${dStr}`);
+      lines.push("");
+      if (errs.length) {
+        lines.push(`> 部分数据缺失：${errs.join("；")}`);
+        lines.push("");
+      }
+      // 账户
+      if (account && account.account) {
+        const a = account.account;
+        lines.push("## 账户概览");
+        lines.push(`- 现金：${a.cash ?? "—"}`);
+        lines.push(`- 冻结：${a.frozen ?? "—"}`);
+        lines.push(`- 市值：${a.market_value ?? "—"}`);
+        lines.push(`- 权益：${a.equity ?? "—"}`);
+        const pos = a.positions || [];
+        lines.push(`- 持仓数：${pos.length}`);
+        lines.push("");
+        if (pos.length) {
+          lines.push("### 持仓");
+          lines.push("| 代码 | 数量 | 成本 | 现价 | 浮动盈亏 |");
+          lines.push("|---|---|---|---|---|");
+          for (const p of pos) {
+            const mv = (p.market_price != null) ? Number(p.market_price).toFixed(4) : "—";
+            const upl = (p.unrealized_pnl != null) ? p.unrealized_pnl.toFixed(2) : "—";
+            lines.push(`| ${p.code} | ${p.qty} | ${Number(p.avg_cost ?? 0).toFixed(4)} | ${mv} | ${upl} |`);
+          }
+          lines.push("");
+        }
+      } else {
+        lines.push("## 账户概览");
+        lines.push("（无数据）");
+        lines.push("");
+      }
+      // 信号
+      if (signals.length) {
+        const counts = {};
+        for (const s of signals) counts[s.level] = (counts[s.level] || 0) + 1;
+        lines.push("## 信号汇总");
+        lines.push(`- 共 ${signals.length} 条`);
+        for (const k of Object.keys(counts)) lines.push(`- ${k}: ${counts[k]}`);
+        const strong = signals.filter(s => s.level === "strong" || s.level === "confirm").slice(0, 5);
+        if (strong.length) {
+          lines.push("");
+          lines.push("### 重点信号");
+          for (const s of strong) lines.push(`- ${s.fired_at || ""} · ${s.code} ${s.name || ""} · ${s.level} · ${s.confidence ?? "?"}`);
+        }
+        lines.push("");
+      }
+      // 成交（最近 N）
+      if (fills.length) {
+        lines.push("## 最近成交");
+        lines.push("| 时间 | 代码 | 方向 | 数量 | 价格 | 费用 |");
+        lines.push("|---|---|---|---|---|---|");
+        for (const f of fills.slice(0, 20)) {
+          const fee = (f.commission + f.stamp_tax + f.transfer_fee).toFixed(2);
+          lines.push(`| ${(f.filled_at || "").slice(0,16)} | ${f.code} | ${f.side} | ${f.qty} | ${f.price} | ${fee} |`);
+        }
+        lines.push("");
+      }
+      // 后验
+      if (perf && perf.stats) {
+        const s = perf.stats;
+        lines.push("## 后验指标");
+        lines.push(`- 窗口：${s.window} 天，样本：${s.samples}`);
+        lines.push(`- 命中率：${(s.hit_rate * 100).toFixed(1)}%`);
+        lines.push(`- 平均收益：${(s.avg_return * 100).toFixed(2)}%`);
+        lines.push(`- 最佳：${(s.best * 100).toFixed(2)}%`);
+        lines.push(`- 最差：${(s.worst * 100).toFixed(2)}%`);
+        if (perf.windows && perf.windows.length) {
+          lines.push("");
+          lines.push("### 多窗口");
+          lines.push("| 窗口 | 样本 | 命中率 | 平均收益 |");
+          lines.push("|---|---|---|---|");
+          for (const w of perf.windows) {
+            lines.push(`| ${w.window}d | ${w.samples} | ${(w.hit_rate*100).toFixed(1)}% | ${(w.avg_return*100).toFixed(2)}% |`);
+          }
+        }
+        lines.push("");
+      }
+      lines.push("---");
+      lines.push("生成时间：" + now.toLocaleString());
+      lines.push("家庭自用 · 不构成投资建议");
+      return lines.join("\n");
+    }
+
     /* 成交 */
     async function renderFills() {
       const r = await apiOrError("/api/v1/paper/fills?limit=200");
@@ -997,6 +1173,10 @@
         html = await renderPerformance();
       } else if (tabName === "ai") {
         html = await renderAi();
+      } else if (tabName === "indices") {
+        html = await renderIndices();
+      } else if (tabName === "brief") {
+        html = await renderBrief();
       } else if (tabName === "wslog") {
         html = renderWsLog();
       }
@@ -1006,6 +1186,22 @@
     }
 
     function bindHandlers() {
+      // 指数池
+      const indexAddBtn = document.getElementById("indexAdd");
+      if (indexAddBtn) indexAddBtn.onclick = runIndexAdd;
+      document.querySelectorAll("[data-index-del]").forEach(b => {
+        b.onclick = () => runIndexDelete(b.getAttribute("data-index-del"));
+      });
+      document.querySelectorAll("[data-index-toggle]").forEach(b => {
+        b.onclick = () => runIndexToggle(b.getAttribute("data-index-toggle"), b.getAttribute("data-index-enabled") === "true");
+      });
+      // 复盘
+      const briefRegen = document.getElementById("briefRegen");
+      if (briefRegen) briefRegen.onclick = () => { briefText = ""; briefCopyStatus = ""; render(); };
+      const briefCopy = document.getElementById("briefCopy");
+      if (briefCopy) briefCopy.onclick = runBriefCopy;
+      const briefDownload = document.getElementById("briefDownload");
+      if (briefDownload) briefDownload.onclick = runBriefDownload;
       // AI 按钮绑定
       const goBtn = document.getElementById("aiGo");
       if (goBtn) goBtn.onclick = runAnalyze;
@@ -1084,6 +1280,77 @@
       const path = universeGroup === "全部" ? "/api/v1/watchlist" : "/api/v1/watchlist?group=" + encodeURIComponent(universeGroup);
       const data = await api(path);
       return [...new Set((data.items || []).map(x => x.code))];
+    }
+
+    /* ---------- 指数池动作 ---------- */
+    async function runIndexAdd() {
+      const code = $("indexCode").value.trim().toLowerCase();
+      const name = $("indexName").value.trim();
+      if (!/^(sh|sz|bj)\d{6}$/.test(code)) {
+        indexStatus = "代码格式应为 sh/sz/bj + 6 位数字";
+        await render();
+        return;
+      }
+      try {
+        await apiRequest("/api/v1/index-universe", "POST", { code, name, enabled: true });
+        indexStatus = `${code} 已添加`;
+        $("indexCode").value = "";
+        $("indexName").value = "";
+      } catch (e) { indexStatus = "添加失败：" + String(e); }
+      await render();
+    }
+
+    async function runIndexDelete(code) {
+      if (!confirm(`确认删除指数 ${code}？`)) return;
+      try {
+        await apiRequest(`/api/v1/index-universe/${encodeURIComponent(code)}`, "DELETE");
+        indexStatus = `${code} 已删除`;
+      } catch (e) { indexStatus = "删除失败：" + String(e); }
+      await render();
+    }
+
+    async function runIndexToggle(code, currentEnabled) {
+      try {
+        await apiRequest("/api/v1/index-universe", "POST", {
+          code, enabled: !currentEnabled,
+        });
+        indexStatus = `${code} 已${currentEnabled ? "停用" : "启用"}`;
+      } catch (e) { indexStatus = "切换失败：" + String(e); }
+      await render();
+    }
+
+    /* ---------- 复盘动作 ---------- */
+    async function runBriefCopy() {
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(briefText);
+        } else {
+          // Tauri webview 在某些情况下 clipboard API 不可用，回退到 textarea
+          const ta = document.createElement("textarea");
+          ta.value = briefText;
+          ta.style.position = "fixed";
+          ta.style.left = "-9999px";
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          ta.remove();
+        }
+        briefCopyStatus = "已复制到剪贴板";
+      } catch (e) { briefCopyStatus = "复制失败：" + String(e); }
+      await render();
+    }
+
+    function runBriefDownload() {
+      const blob = new Blob([briefText], { type: "text/markdown;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = exportFilename("brief");
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 100);
+      briefCopyStatus = "已触发下载";
+      render();
     }
 
     async function runWatchAdd() {

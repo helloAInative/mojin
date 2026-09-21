@@ -308,9 +308,9 @@
      * 不走 Blob+fetch：WKWebView/Wry 默认不弹保存对话框，会试图 navigate 到 csv 链接。
      */
     function pad2(n) { return String(n).padStart(2, "0"); }
-    function exportFilename(prefix) {
+    function exportFilename(prefix, ext = "csv") {
       const d = new Date();
-      return `${prefix}-${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}.csv`;
+      return `${prefix}-${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}.${ext}`;
     }
     function exportCsv(path) {
       // url 加 cache buster，避免某些 webview 缓存 CSV
@@ -679,23 +679,28 @@
 
     /* 每日复盘 */
     async function renderBrief() {
-      // 拉取 4 路数据
-      const [acctR, fillsR, sigsR, perfR] = await Promise.all([
+      // 拉取账户、成交、信号、后验和外部市场上下文
+      const [acctR, fillsR, sigsR, perfR, researchR] = await Promise.all([
         apiOrError("/api/v1/paper/account"),
         apiOrError("/api/v1/paper/fills?limit=50"),
-        apiOrError("/api/v1/signals?limit=100"),
-        apiOrError("/api/v1/performance?days=60"),
+        apiOrError("/api/v1/signals"),
+        apiOrError("/api/v1/performance?days=5&limit=200"),
+        apiOrError("/api/v1/research/context"),
       ]);
+      const labeled = [
+        ["账户", acctR], ["成交", fillsR], ["信号", sigsR], ["后验", perfR], ["市场", researchR],
+      ];
       const md = buildBriefMarkdown({
         account: acctR.ok ? acctR.data : null,
         fills: fillsR.ok ? fillsR.data.fills || [] : [],
         signals: sigsR.ok ? sigsR.data.signals || [] : [],
         perf: perfR.ok ? perfR.data : null,
-        errs: [acctR, fillsR, sigsR, perfR].filter(r => !r.ok).map(r => r.path + ": " + r.error),
+        research: researchR.ok ? researchR.data.context : null,
+        errs: labeled.filter(([, result]) => !result.ok).map(([name, result]) => `${name}: ${result.error}`),
       });
       briefText = md;
       return `
-        <p class="page-intro">聚合账户、成交、信号、后验四路数据生成可复制的复盘摘要。粘贴到笔记 / 微信收藏 / Notion 均可。</p>
+        <p class="page-intro">聚合昨日美股、行业强弱、账户、成交、信号和后验，生成可复制、可下载的复盘摘要。</p>
         <div class="card" style="margin-bottom:14px">
           <div class="toolbar">
             <button id="briefRegen">重新生成</button>
@@ -711,7 +716,7 @@
       `;
     }
 
-    function buildBriefMarkdown({ account, fills, signals, perf, errs }) {
+    function buildBriefMarkdown({ account, fills, signals, perf, research, errs }) {
       const lines = [];
       const now = new Date();
       const dStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`;
@@ -721,9 +726,22 @@
         lines.push(`> 部分数据缺失：${errs.join("；")}`);
         lines.push("");
       }
+      // 海外市场与行业
+      const usMarket = research?.us_market || [];
+      lines.push("## 昨日美股");
+      if (usMarket.length) {
+        for (const m of usMarket) lines.push(`- ${m.name}（${m.session_date}）：${Number(m.change_pct) >= 0 ? "+" : ""}${Number(m.change_pct).toFixed(2)}%`);
+      } else lines.push("- 暂无可用数据");
+      lines.push("");
+      const sectors = research?.sectors || [];
+      lines.push("## A 股行业强弱");
+      if (sectors.length) {
+        for (const s of sectors.slice(0, 8)) lines.push(`- ${s.name}：${Number(s.change_pct) >= 0 ? "+" : ""}${Number(s.change_pct).toFixed(2)}%`);
+      } else lines.push("- 暂无可用数据");
+      lines.push("");
       // 账户
-      if (account && account.account) {
-        const a = account.account;
+      if (account) {
+        const a = account;
         lines.push("## 账户概览");
         lines.push(`- 现金：${a.cash ?? "—"}`);
         lines.push(`- 冻结：${a.frozen ?? "—"}`);
@@ -738,7 +756,7 @@
           lines.push("|---|---|---|---|---|");
           for (const p of pos) {
             const mv = (p.market_price != null) ? Number(p.market_price).toFixed(4) : "—";
-            const upl = (p.unrealized_pnl != null) ? p.unrealized_pnl.toFixed(2) : "—";
+            const upl = p.market_price == null ? "—" : (Number(p.market_value) - Number(p.cost)).toFixed(2);
             lines.push(`| ${p.code} | ${p.qty} | ${Number(p.avg_cost ?? 0).toFixed(4)} | ${mv} | ${upl} |`);
           }
           lines.push("");
@@ -779,19 +797,25 @@
         const s = perf.stats;
         lines.push("## 后验指标");
         lines.push(`- 窗口：${s.window} 天，样本：${s.samples}`);
-        lines.push(`- 命中率：${(s.hit_rate * 100).toFixed(1)}%`);
-        lines.push(`- 平均收益：${(s.avg_return * 100).toFixed(2)}%`);
-        lines.push(`- 最佳：${(s.best * 100).toFixed(2)}%`);
-        lines.push(`- 最差：${(s.worst * 100).toFixed(2)}%`);
+        lines.push(`- 命中率：${s.hit_rate == null ? "—" : (s.hit_rate * 100).toFixed(1) + "%"}`);
+        lines.push(`- 平均收益：${fmtPct(s.avg_return)}`);
+        lines.push(`- 最佳：${fmtPct(s.best)}`);
+        lines.push(`- 最差：${fmtPct(s.worst)}`);
         if (perf.windows && perf.windows.length) {
           lines.push("");
           lines.push("### 多窗口");
           lines.push("| 窗口 | 样本 | 命中率 | 平均收益 |");
           lines.push("|---|---|---|---|");
           for (const w of perf.windows) {
-            lines.push(`| ${w.window}d | ${w.samples} | ${(w.hit_rate*100).toFixed(1)}% | ${(w.avg_return*100).toFixed(2)}% |`);
+            lines.push(`| ${w.window}d | ${w.samples} | ${w.hit_rate == null ? "—" : (w.hit_rate*100).toFixed(1) + "%"} | ${fmtPct(w.avg_return)} |`);
           }
         }
+        lines.push("");
+      }
+      const sourceErrors = research?.errors || [];
+      if (sourceErrors.length) {
+        lines.push("## 数据提醒");
+        for (const error of sourceErrors) lines.push(`- ${error}`);
         lines.push("");
       }
       lines.push("---");
@@ -1345,7 +1369,7 @@
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = exportFilename("brief");
+      a.download = exportFilename("brief", "md");
       document.body.appendChild(a);
       a.click();
       setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 100);

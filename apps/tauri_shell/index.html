@@ -193,7 +193,9 @@
 
   <nav id="nav">
     <button data-tab="dashboard" class="active">总览</button>
+    <button data-tab="universe">自选/扫描</button>
     <button data-tab="account">账户/持仓</button>
+    <button data-tab="fills">成交</button>
     <button data-tab="signals">信号</button>
     <button data-tab="performance">后验</button>
     <button data-tab="ai">AI 仲裁</button>
@@ -206,7 +208,7 @@
 
   <script>
     const $ = (id) => document.getElementById(id);
-    const TABS = ["dashboard", "account", "signals", "performance", "ai", "wslog"];
+    const TABS = ["dashboard", "universe", "account", "fills", "signals", "performance", "ai", "wslog"];
     const STORAGE_KEY = "mojin.desktop.baseUrl";
     let BASE = "http://127.0.0.1:8787";
     let ws = null;
@@ -218,6 +220,8 @@
     let lastEquity = null;
     let snapshotStatus = "";
     let researchResult = null;
+    let universeGroup = "全部";
+    let universeStatus = "";
     // 信号 tab 本地状态
     let signalFilter = { levels: new Set(["risk","confirm","strong","tip"]), code: "" };
     let expandedSignalId = null;
@@ -276,6 +280,19 @@
       const res = await fetch(BASE + path, { headers: { "Accept": "application/json" } });
       if (!res.ok) throw new Error(path + " → " + res.status);
       return res.json();
+    }
+
+    async function apiRequest(path, method, body) {
+      const options = { method, headers: { "Accept": "application/json" } };
+      if (body !== undefined) {
+        options.headers["Content-Type"] = "application/json";
+        options.body = JSON.stringify(body);
+      }
+      const res = await fetch(BASE + path, options);
+      let data = null;
+      try { data = await res.json(); } catch { /* keep HTTP status below */ }
+      if (!res.ok || data?.ok === false) throw new Error(data?.error || `${path} → ${res.status}`);
+      return data;
     }
 
     /* ---------- CSV 导出 ----------
@@ -463,6 +480,57 @@
       `;
     }
 
+    /* 自选 / 扫描 */
+    async function renderUniverse() {
+      const [watch, groups] = await Promise.all([
+        apiOrError("/api/v1/watchlist"),
+        apiOrError("/api/v1/watchlist/groups"),
+      ]);
+      if (!watch.ok) return errBlock("/api/v1/watchlist", watch.error);
+      const items = watch.data.items || [];
+      const groupNames = groups.ok ? (groups.data.groups || []) : [];
+      if (universeGroup !== "全部" && !groupNames.includes(universeGroup)) universeGroup = "全部";
+      const shown = universeGroup === "全部" ? items : items.filter(x => x.group_name === universeGroup);
+      return `
+        <p class="page-intro">维护研究股票池，批量生成技术信号，再把当前分组交给五路 AI 排名。</p>
+        <div class="card" style="margin-bottom:14px">
+          <h2>添加自选</h2>
+          <div class="toolbar">
+            <input id="watchCode" placeholder="sz000001" style="width:120px" />
+            <input id="watchName" placeholder="名称（可选）" style="width:140px" />
+            <input id="watchGroup" placeholder="分组" value="${esc(universeGroup === "全部" ? "默认" : universeGroup)}" style="width:110px" />
+            <input id="watchNote" placeholder="备注（可选）" style="width:240px" />
+            <button id="watchAdd">添加 / 更新</button>
+            <span id="universeStatus" class="meta">${esc(universeStatus)}</span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <h2>自选池 <span class="h2-sub">${shown.length} / ${items.length} 只</span></h2>
+          </div>
+          <div class="toolbar">
+            <select id="watchGroupFilter">
+              <option value="全部">全部分组</option>
+              ${groupNames.map(g => `<option value="${esc(g)}" ${universeGroup === g ? "selected" : ""}>${esc(g)}</option>`).join("")}
+            </select>
+            <button id="watchScan" ${shown.length ? "" : "disabled"}>扫描当前分组</button>
+            <button id="watchAi" class="alt" ${shown.length ? "" : "disabled"}>五路 AI 排名</button>
+            <span class="meta">扫描写入技术信号；AI 单次最多取前 12 只。</span>
+          </div>
+          ${shown.length === 0
+            ? emptyBlock("自选池为空", "先添加带市场前缀的代码，例如 sz000001、sh600519。")
+            : `<table>
+              <thead><tr><th>分组</th><th>代码</th><th>名称</th><th>备注</th><th>添加时间</th><th>操作</th></tr></thead>
+              <tbody>${shown.map(x => `<tr>
+                <td>${esc(x.group_name)}</td><td>${esc(x.code)}</td><td>${esc(x.name || "—")}</td>
+                <td><span class="meta">${esc(x.note || "—")}</span></td><td>${esc(fmtTs(x.added_at))}</td>
+                <td><button class="export-btn" data-scan-code="${esc(x.code)}">扫描</button>
+                    <button class="cancel-btn" data-watch-code="${esc(x.code)}" data-watch-group="${esc(x.group_name)}">删除</button></td>
+              </tr>`).join("")}</tbody>
+            </table>`}
+        </div>`;
+    }
+
     /* 账户 */
     function renderAccount(d) {
       if (!d.account) return errBlock("/api/v1/paper/account", d.errors[0] || "未知");
@@ -550,6 +618,79 @@
                       : '<span class="meta">—</span>'}</td>
                   </tr>`;
                 }).join("")}
+              </tbody>
+            </table>`}
+        </div>
+      `;
+    }
+
+    /* 成交 */
+    async function renderFills() {
+      const r = await apiOrError("/api/v1/paper/fills?limit=200");
+      if (!r.ok) return errBlock("/api/v1/paper/fills", r.error);
+      const fills = r.data.fills || [];
+      // 汇总：按代码聚合买入/卖出数量 + 净持仓
+      const summary = {};
+      for (const f of fills) {
+        const k = f.code;
+        if (!summary[k]) summary[k] = { code: k, buy: 0, sell: 0, buyAmt: 0, sellAmt: 0, fee: 0 };
+        if (f.side === "buy") {
+          summary[k].buy += f.qty;
+          summary[k].buyAmt += f.qty * f.price;
+        } else {
+          summary[k].sell += f.qty;
+          summary[k].sellAmt += f.qty * f.price;
+        }
+        summary[k].fee += (f.commission + f.stamp_tax + f.transfer_fee);
+      }
+      const summaryRows = Object.values(summary)
+        .map(s => ({
+          ...s,
+          net: s.buy - s.sell,
+          avgBuy: s.buy > 0 ? s.buyAmt / s.buy : 0,
+        }))
+        .sort((a, b) => b.net - a.net);
+      return `
+        <p class="page-intro">模拟盘成交明细。买/卖费用已并入；底部汇总按代码聚合净持仓与累计费用。</p>
+        <div class="card" style="margin-bottom:14px">
+          <div class="card-head">
+            <h2>成交明细 <span class="h2-sub">${fills.length} 笔</span></h2>
+            <button class="export-btn" data-export-path="/api/v1/export/fills.csv?limit=2000">导出 CSV</button>
+          </div>
+          ${fills.length === 0
+            ? emptyBlock("暂无成交", "去账户/持仓 tab 下一笔模拟单试试。")
+            : `<table>
+              <thead><tr><th>时间</th><th>代码</th><th>方向</th><th>数量</th><th>价格</th><th>金额</th><th>佣金</th><th>印花税</th><th>过户费</th></tr></thead>
+              <tbody>${fills.map(f => `
+                <tr>
+                  <td><span class="meta">${esc(fmtTs(f.filled_at))}</span></td>
+                  <td>${esc(f.code)}</td>
+                  <td><span class="pill ${f.side === "buy" ? "ok" : "bad"}">${f.side === "buy" ? "买" : "卖"}</span></td>
+                  <td>${f.qty}</td>
+                  <td>${fmtNum(f.price)}</td>
+                  <td>${fmtNum(f.qty * f.price)}</td>
+                  <td>${fmtNum(f.commission)}</td>
+                  <td>${fmtNum(f.stamp_tax)}</td>
+                  <td>${fmtNum(f.transfer_fee)}</td>
+                </tr>`).join("")}
+              </tbody>
+            </table>`}
+        </div>
+        <div class="card">
+          <h2>按代码汇总</h2>
+          ${summaryRows.length === 0
+            ? emptyBlock("暂无汇总", "还没有成交数据。")
+            : `<table>
+              <thead><tr><th>代码</th><th>买入</th><th>卖出</th><th>净持仓</th><th>买入均价</th><th>累计费用</th></tr></thead>
+              <tbody>${summaryRows.map(s => `
+                <tr>
+                  <td>${esc(s.code)}</td>
+                  <td>${s.buy}</td>
+                  <td>${s.sell}</td>
+                  <td class="${s.net > 0 ? "pos" : s.net < 0 ? "neg" : ""}">${s.net}</td>
+                  <td>${s.avgBuy > 0 ? fmtNum(s.avgBuy) : "—"}</td>
+                  <td>${fmtNum(s.fee)}</td>
+                </tr>`).join("")}
               </tbody>
             </table>`}
         </div>
@@ -848,6 +989,10 @@
         if (tabName === "dashboard") html = renderDashboard(d);
         else if (tabName === "account") html = renderAccount(d);
         else if (tabName === "signals") html = renderSignals(d);
+      } else if (tabName === "universe") {
+        html = await renderUniverse();
+      } else if (tabName === "fills") {
+        html = await renderFills();
       } else if (tabName === "performance") {
         html = await renderPerformance();
       } else if (tabName === "ai") {
@@ -869,12 +1014,27 @@
       const markBtn = document.getElementById("refreshValuation");
       if (markBtn) markBtn.onclick = runSnapshot;
 
+      const watchAddBtn = document.getElementById("watchAdd");
+      if (watchAddBtn) watchAddBtn.onclick = runWatchAdd;
+      const watchFilter = document.getElementById("watchGroupFilter");
+      if (watchFilter) watchFilter.onchange = () => { universeGroup = watchFilter.value; render(); };
+      const watchScanBtn = document.getElementById("watchScan");
+      if (watchScanBtn) watchScanBtn.onclick = () => runWatchScan();
+      const watchAiBtn = document.getElementById("watchAi");
+      if (watchAiBtn) watchAiBtn.onclick = runWatchAi;
+      document.querySelectorAll("[data-scan-code]").forEach(b => {
+        b.onclick = () => runWatchScan([b.getAttribute("data-scan-code")]);
+      });
+      document.querySelectorAll("[data-watch-code]").forEach(b => {
+        b.onclick = () => runWatchDelete(b.getAttribute("data-watch-group"), b.getAttribute("data-watch-code"));
+      });
+
       // 模拟下单
       const orderGoBtn = document.getElementById("orderGo");
       if (orderGoBtn) orderGoBtn.onclick = runSubmitOrder;
 
       // 撤单
-      document.querySelectorAll(".cancel-btn").forEach(b => {
+      document.querySelectorAll(".cancel-btn[data-order-id]").forEach(b => {
         b.onclick = () => {
           const id = b.getAttribute("data-order-id");
           if (id) runCancelOrder(id);
@@ -918,6 +1078,65 @@
           render();
         };
       });
+    }
+
+    async function currentWatchCodes() {
+      const path = universeGroup === "全部" ? "/api/v1/watchlist" : "/api/v1/watchlist?group=" + encodeURIComponent(universeGroup);
+      const data = await api(path);
+      return [...new Set((data.items || []).map(x => x.code))];
+    }
+
+    async function runWatchAdd() {
+      const code = $("watchCode").value.trim().toLowerCase();
+      const name = $("watchName").value.trim();
+      const group = $("watchGroup").value.trim() || "默认";
+      const note = $("watchNote").value.trim();
+      if (!/^(sh|sz|bj)\d{6}$/.test(code)) {
+        universeStatus = "代码格式应为 sh/sz/bj + 6 位数字";
+        return render();
+      }
+      try {
+        await apiRequest("/api/v1/watchlist", "POST", { code, name, group, note });
+        universeGroup = group;
+        universeStatus = `${code} 已加入 ${group}`;
+      } catch (e) { universeStatus = "添加失败：" + String(e); }
+      await render();
+    }
+
+    async function runWatchDelete(group, code) {
+      try {
+        await apiRequest("/api/v1/watchlist/item?group=" + encodeURIComponent(group) + "&code=" + encodeURIComponent(code), "DELETE");
+        universeStatus = `${code} 已删除`;
+      } catch (e) { universeStatus = "删除失败：" + String(e); }
+      await render();
+    }
+
+    async function runWatchScan(onlyCodes) {
+      universeStatus = "正在抓取日线并计算技术指标…";
+      await render();
+      try {
+        const codes = onlyCodes || await currentWatchCodes();
+        if (!codes.length) throw new Error("当前分组没有股票");
+        const data = await apiRequest("/api/v1/scan", "POST", { codes });
+        universeStatus = `扫描 ${data.evaluated} 只，行情有效 ${data.evaluated_bars} 只，触发 ${data.triggered} 条信号`;
+      } catch (e) { universeStatus = "扫描失败：" + String(e); }
+      await render();
+    }
+
+    async function runWatchAi() {
+      universeStatus = "正在采集新闻、市场和技术数据并运行五路分析…";
+      await render();
+      try {
+        const codes = (await currentWatchCodes()).slice(0, 12);
+        if (!codes.length) throw new Error("当前分组没有股票");
+        researchResult = await apiRequest("/api/v1/research/select", "POST", { codes, max_candidates: 5 });
+        currentTab = "ai";
+        document.querySelectorAll("#nav button").forEach(b => b.classList.toggle("active", b.dataset.tab === currentTab));
+        await render();
+      } catch (e) {
+        universeStatus = "AI 排名失败：" + String(e);
+        await render();
+      }
     }
 
     /* ---------- 动作 ---------- */
